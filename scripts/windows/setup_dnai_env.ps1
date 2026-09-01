@@ -69,8 +69,8 @@ if (-not (Test-Path $python)) {
 
 Write-Host "[Install PyTorch CUDA 12.8 baseline]"
 & $uv pip install --python $python `
-    "torch==2.7.0" `
-    "torchvision==0.22.0" `
+    "torch==2.7.0+cu128" `
+    "torchvision==0.22.0+cu128" `
     --index-url https://download.pytorch.org/whl/cu128
 Assert-LastExitCode "PyTorch CUDA installation"
 
@@ -79,15 +79,27 @@ Assert-LastExitCode "PyTorch CUDA installation"
 # which makes installers fall back to a local C++ build. 5.0.1 has a
 # compatible cp311-win_amd64 wheel, so pin it for this reproducible Windows
 # environment until the upstream wheel gap is resolved.
+#
+# Explicitly pin the CUDA PyTorch pair in the same transaction. Otherwise the
+# general PyPI dependency resolver may replace the CUDA wheel with a newer CPU
+# build while satisfying Lightning/torchmetrics dependencies.
 Write-Host "[Install pinned DNAi source and declared dependencies]"
-Write-Host "Using Windows compatibility pin: stringzilla==5.0.1"
+Write-Host "Windows compatibility pin: stringzilla==5.0.1"
+Write-Host "CUDA pins: torch==2.7.0+cu128, torchvision==0.22.0+cu128"
 & $uv pip install --python $python `
     -e $dnaiSource `
-    "stringzilla==5.0.1"
+    "stringzilla==5.0.1" `
+    "torch==2.7.0+cu128" `
+    "torchvision==0.22.0+cu128" `
+    --extra-index-url https://download.pytorch.org/whl/cu128
 Assert-LastExitCode "DNAi dependency installation"
 
+Write-Host "[Dependency check]"
+& $uv pip check --python $python
+Assert-LastExitCode "dependency check"
+
 Write-Host "[Verify CUDA]"
-& $python -c "import torch; print('torch:', torch.__version__); print('torch CUDA runtime:', torch.version.cuda); print('cuda available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NONE'); print('VRAM GiB:', round(torch.cuda.get_device_properties(0).total_memory/1024**3, 2) if torch.cuda.is_available() else 0)"
+& $python -c "import torch; print('torch:', torch.__version__); print('torch CUDA runtime:', torch.version.cuda); print('cuda available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NONE'); print('VRAM GiB:', round(torch.cuda.get_device_properties(0).total_memory/1024**3, 2) if torch.cuda.is_available() else 0); assert torch.cuda.is_available(), 'CUDA PyTorch is required for the DNAi reference environment'"
 Assert-LastExitCode "CUDA verification"
 
 Write-Host "[Verify DNAi import]"
