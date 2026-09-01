@@ -14,10 +14,14 @@ Write-Host "Root: $extractRoot"
 Write-Host ""
 
 Write-Host "[Directory tree: first 3 levels]"
+$separator = [System.IO.Path]::DirectorySeparatorChar
 Get-ChildItem -Path $extractRoot -Directory -Recurse |
     ForEach-Object {
-        $relative = $_.FullName.Substring($extractRoot.Length).TrimStart('\')
-        $depth = ($relative -split '\').Count
+        $relative = [System.IO.Path]::GetRelativePath($extractRoot, $_.FullName)
+        $depth = $relative.Split(
+            [char[]]@($separator),
+            [System.StringSplitOptions]::RemoveEmptyEntries
+        ).Count
         if ($depth -le 3) {
             [PSCustomObject]@{
                 Depth = $depth
@@ -59,9 +63,12 @@ Get-ChildItem -Path $extractRoot -File -Recurse |
 
 Write-Host ""
 Write-Host "[Dataset totals]"
-$allFiles = Get-ChildItem -Path $extractRoot -File -Recurse
-$imageFiles = $allFiles | Where-Object { $_.Extension -match '(?i)^\.(tif|tiff|png|jpg|jpeg|czi|dv)$' }
+$allFiles = @(Get-ChildItem -Path $extractRoot -File -Recurse)
+$imageFiles = @($allFiles | Where-Object { $_.Extension -match '(?i)^\.(tif|tiff|png|jpg|jpeg|czi|dv)$' })
 $totalBytes = ($allFiles | Measure-Object Length -Sum).Sum
+if ($null -eq $totalBytes) {
+    $totalBytes = 0
+}
 
 Write-Host ("Files total:      {0}" -f $allFiles.Count)
 Write-Host ("Image-like files: {0}" -f $imageFiles.Count)
