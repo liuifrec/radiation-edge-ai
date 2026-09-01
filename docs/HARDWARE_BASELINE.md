@@ -35,11 +35,40 @@ The returned descriptor reported:
 
 This establishes a project-owned baseline independent of the original Kneron demo scripts.
 
-## Next hardware gate
+## Semantic-segmentation smoke test
 
-Before adapting a biological model, validate semantic-segmentation inference on KL720 using the installed STDC-Seg example. This is the closest existing Kneron model-zoo path to the DNA-fiber segmentation workload.
+The installed Kneron STDC-Seg model-zoo example was run successfully on the physical KL720 using:
 
-The biological conversion sequence is then:
+```text
+KL720KnModelZooGenericDataInferenceMMSegSTDC.py
+```
+
+Observed result:
+
+- device connection: PASS
+- model upload: PASS
+- image input: PASS
+- inference: PASS
+- output-node retrieval: PASS
+- dense per-pixel segmentation array returned
+- colorized segmentation image generated as `output_city_scape_640x428.jpg`
+
+This confirms that the KL720 can execute dense semantic-segmentation inference, not only classification/detection workloads. The STDC example therefore provides the closest existing model-zoo deployment pattern for the planned DNA-fiber segmentation backend.
+
+## Platform qualification status
+
+```text
+device discovery             PASS
+KL720 NEF loading            PASS
+object-detection workflow    PASS
+semantic-segmentation flow   PASS
+```
+
+The generic KL720 qualification phase is complete.
+
+## First biological conversion
+
+The next milestone is DNA fiber. The intended architecture is:
 
 ```text
 DNAi reference segmentation
@@ -50,3 +79,5 @@ DNAi reference segmentation
         -> original/compatible CPU fiber reconstruction
         -> biological endpoint agreement
 ```
+
+The first scientific task is to freeze a small public DNAi reference subset and identify the exact segmentation model, preprocessing, tiling, and post-processing used by the reference workflow before changing any of them.
