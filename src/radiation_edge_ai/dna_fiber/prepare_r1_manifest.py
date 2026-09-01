@@ -48,37 +48,60 @@ def natural_key(relative: Path) -> tuple[int, int, str]:
 
 def source_score(path: Path, relative: Path) -> int:
     parts = [part.lower() for part in path.parts]
+    group = relative.parts[0].lower()
     score = 0
     if "annotations" in parts:
         return -10_000
     if "intergrader" in parts:
         score += 100
-    if "images" in parts or "image" in parts:
+    if "images" in parts or "image" in parts or "imgs" in parts or "img" in parts:
         score += 50
     if "common" in parts:
         score += 25
     if "test" in parts:
         score += 10
-    if path.parent.name == relative.parent.name:
-        score += 15
+    if group in parts:
+        score += 40
+    if path.parent.name.lower() == group:
+        score += 20
+    if path.suffix.lower() in {".jpg", ".jpeg"}:
+        # DNAi's inter-grader helper explicitly accepts JPEG and PNG inputs.
+        score += 1
     if "mask" in parts or "masks" in parts:
         score -= 500
     return score
 
 
 def resolve_source(dataset_root: Path, relative: Path, all_images: list[Path]) -> Path:
+    """Resolve a human-annotation key to its corresponding microscopy tile.
+
+    Annotation masks are PNGs, while the source tile may use another image
+    extension and may not have the same immediate parent directory. Match on
+    tile stem first, then use dataset-layout evidence (intergrader/images,
+    group number, common/test) for deterministic ranking.
+    """
+    group = relative.parts[0].lower()
     candidates = [
         path
         for path in all_images
-        if path.name == relative.name
-        and path.parent.name == relative.parent.name
+        if path.stem.lower() == relative.stem.lower()
         and "annotations" not in [part.lower() for part in path.parts]
     ]
+
     if not candidates:
+        same_stem_anywhere = [
+            path for path in all_images if path.stem.lower() == relative.stem.lower()
+        ]
+        details = "\n".join(f"  {path}" for path in same_stem_anywhere[:30])
         raise RuntimeError(
-            f"No source-image candidate found for {relative.as_posix()}. "
-            "The dataset layout needs manual inspection."
+            f"No non-annotation source-image candidate found for {relative.as_posix()}.\n"
+            f"Files with matching stem ({relative.stem}) were:\n{details or '  NONE'}"
         )
+
+    # Prefer candidates that explicitly contain the annotation's numeric group.
+    grouped = [path for path in candidates if group in [p.lower() for p in path.parts]]
+    if grouped:
+        candidates = grouped
 
     ranked = sorted(candidates, key=lambda p: (-source_score(p, relative), str(p)))
     best_score = source_score(ranked[0], relative)
@@ -92,7 +115,7 @@ def resolve_source(dataset_root: Path, relative: Path, all_images: list[Path]) -
     if len(hashes) == 1:
         return best[0]
 
-    details = "\n".join(f"  score={source_score(p, relative):4d}  {p}" for p in ranked)
+    details = "\n".join(f"  score={source_score(p, relative):4d}  {p}" for p in ranked[:30])
     raise RuntimeError(
         f"Ambiguous non-identical source images for {relative.as_posix()}:\n{details}"
     )
