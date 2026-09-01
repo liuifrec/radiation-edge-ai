@@ -14,14 +14,18 @@ Write-Host "Root: $extractRoot"
 Write-Host ""
 
 Write-Host "[Directory tree: first 3 levels]"
-$separator = [System.IO.Path]::DirectorySeparatorChar
+# Windows PowerShell 5.1 runs on .NET Framework, which does not provide
+# System.IO.Path.GetRelativePath(). Since every item below is discovered under
+# $extractRoot, a prefix substring is sufficient and works on both PS 5.1 and 7+.
 Get-ChildItem -Path $extractRoot -Directory -Recurse |
     ForEach-Object {
-        $relative = [System.IO.Path]::GetRelativePath($extractRoot, $_.FullName)
-        $depth = $relative.Split(
-            [char[]]@($separator),
-            [System.StringSplitOptions]::RemoveEmptyEntries
-        ).Count
+        $relative = $_.FullName.Substring($extractRoot.Length)
+        while ($relative.StartsWith("\") -or $relative.StartsWith("/")) {
+            $relative = $relative.Substring(1)
+        }
+        $normalized = $relative.Replace("\", "/")
+        $parts = @($normalized.Split("/") | Where-Object { $_.Length -gt 0 })
+        $depth = $parts.Count
         if ($depth -le 3) {
             [PSCustomObject]@{
                 Depth = $depth
