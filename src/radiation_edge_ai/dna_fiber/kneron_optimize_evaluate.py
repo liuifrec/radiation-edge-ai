@@ -8,7 +8,7 @@ image. It performs only the floating-point preparation gate:
 3. save optimized ONNX
 4. create ktc.ModelConfig for platform 720
 5. run IP evaluation to expose unsupported/CPU operators and estimated NPU cost
-6. persist Kneron's model_fx_report.html/json beside the requested report
+6. harvest Kneron's model_fx_report.html/json into the persistent report folder
 
 No quantization or compilation is performed here.
 """
@@ -18,6 +18,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -41,6 +43,48 @@ def read_text_if_present(path: Path) -> str:
     if not path.is_file():
         return ""
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def find_newest_report(filename: str, evaluation_started: float) -> Path | None:
+    """Find KTC-generated FX report in known internal work roots.
+
+    KTC v0.33.1 writes reports under its own internal work directories rather
+    than respecting the caller's current working directory. Prefer files
+    modified during the current evaluation and then the newest candidate.
+    """
+
+    roots = (Path("/workspace/.tmp"), Path("/data1/kneron_flow"), Path("/tmp"))
+    candidates: list[Path] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        try:
+            if root.is_dir() and root.name == "kneron_flow":
+                direct = root / filename
+                if direct.is_file():
+                    candidates.append(direct)
+            for path in root.rglob(filename):
+                if path.is_file() and path not in candidates:
+                    candidates.append(path)
+        except OSError:
+            continue
+
+    if not candidates:
+        return None
+
+    fresh = [p for p in candidates if p.stat().st_mtime >= evaluation_started - 5.0]
+    pool = fresh if fresh else candidates
+    return max(pool, key=lambda p: p.stat().st_mtime)
+
+
+def harvest_report(filename: str, destination_dir: Path, evaluation_started: float) -> tuple[Path | None, Path | None]:
+    source = find_newest_report(filename, evaluation_started)
+    if source is None:
+        return None, None
+    destination = destination_dir / filename
+    if source.resolve() != destination.resolve():
+        shutil.copy2(source, destination)
+    return source, destination
 
 
 def main() -> int:
@@ -94,10 +138,8 @@ def main() -> int:
         onnx_model=optimized,
     )
 
-    # KTC writes model_fx_report.html/json into the current working directory.
-    # Run evaluation from the persistent report directory so Docker --rm does
-    # not discard the diagnostics when the container exits.
     old_cwd = Path.cwd()
+    evaluation_started = time.time()
     try:
         os.chdir(report.parent)
         evaluation = km.evaluate()
@@ -107,18 +149,23 @@ def main() -> int:
     evaluation_text = str(evaluation)
     print(evaluation_text)
 
-    fx_html = report.parent / "model_fx_report.html"
-    fx_json = report.parent / "model_fx_report.json"
+    fx_json_source, fx_json = harvest_report(
+        "model_fx_report.json", report.parent, evaluation_started
+    )
+    fx_html_source, fx_html = harvest_report(
+        "model_fx_report.html", report.parent, evaluation_started
+    )
 
-    # Some KTC failures are printed by an internal subprocess and therefore do
-    # not appear in str(km.evaluate()). The persisted FX reports are the more
-    # reliable status source. Search all three channels before declaring HW
-    # support.
+    if fx_json is not None:
+        print(f" - harvested FX JSON: {fx_json_source} -> {fx_json}")
+    if fx_html is not None:
+        print(f" - harvested FX HTML: {fx_html_source} -> {fx_html}")
+
     status_corpus = "\n".join(
         (
             evaluation_text,
-            read_text_if_present(fx_json),
-            read_text_if_present(fx_html),
+            read_text_if_present(fx_json) if fx_json else "",
+            read_text_if_present(fx_html) if fx_html else "",
         )
     ).lower()
     failure_markers = (
@@ -141,8 +188,10 @@ def main() -> int:
         "after": after,
         "evaluation": evaluation_text,
         "hardware_supported": hardware_supported,
-        "kneron_fx_report_html": str(fx_html) if fx_html.is_file() else None,
-        "kneron_fx_report_json": str(fx_json) if fx_json.is_file() else None,
+        "kneron_fx_report_json_source": str(fx_json_source) if fx_json_source else None,
+        "kneron_fx_report_json": str(fx_json) if fx_json else None,
+        "kneron_fx_report_html_source": str(fx_html_source) if fx_html_source else None,
+        "kneron_fx_report_html": str(fx_html) if fx_html else None,
     }
     report.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -151,9 +200,9 @@ def main() -> int:
     print(f"KL720 HW SUPPORT: {'YES' if hardware_supported else 'NO'}")
     print(f"Optimized ONNX: {output}")
     print(f"Report: {report}")
-    if fx_html.is_file():
+    if fx_html:
         print(f"FX HTML: {fx_html}")
-    if fx_json.is_file():
+    if fx_json:
         print(f"FX JSON: {fx_json}")
     return 0
 
