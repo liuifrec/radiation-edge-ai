@@ -37,6 +37,12 @@ def graph_summary(model: onnx.ModelProto) -> dict:
     }
 
 
+def read_text_if_present(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
@@ -103,14 +109,27 @@ def main() -> int:
 
     fx_html = report.parent / "model_fx_report.html"
     fx_json = report.parent / "model_fx_report.json"
-    hardware_supported = not any(
-        marker in evaluation_text.lower()
-        for marker in (
-            "hw not support",
-            "failure for model",
-            "err:",
+
+    # Some KTC failures are printed by an internal subprocess and therefore do
+    # not appear in str(km.evaluate()). The persisted FX reports are the more
+    # reliable status source. Search all three channels before declaring HW
+    # support.
+    status_corpus = "\n".join(
+        (
+            evaluation_text,
+            read_text_if_present(fx_json),
+            read_text_if_present(fx_html),
         )
+    ).lower()
+    failure_markers = (
+        "hw not support",
+        "hardware not support",
+        "not supported",
+        "unsupported",
+        "failure for model",
+        "err: 4",
     )
+    hardware_supported = not any(marker in status_corpus for marker in failure_markers)
 
     payload = {
         "input": str(source),
