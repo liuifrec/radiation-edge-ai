@@ -7,6 +7,11 @@ floating-point ONNX simulator and the fixed-point BIE simulator. Raw outputs
 are persisted for downstream stitching and biological validation in the DNAi
 Windows environment.
 
+Raw-logit errors can look large even when a common-mode shift leaves class
+probabilities and decisions nearly unchanged. Therefore this script reports
+raw logits, per-pixel centered logits, softmax probabilities, and argmax
+agreement separately.
+
 This stage does not compile an NEF and does not touch calibration data.
 """
 
@@ -36,7 +41,10 @@ def sha256_file(path: Path) -> str:
 
 def output_array(result, label: str) -> np.ndarray:
     if not isinstance(result, (list, tuple)) or len(result) != 1:
-        raise RuntimeError(f"{label} expected exactly one output tensor, got {type(result)} len={len(result) if hasattr(result, '__len__') else 'NA'}")
+        raise RuntimeError(
+            f"{label} expected exactly one output tensor, got {type(result)} "
+            f"len={len(result) if hasattr(result, '__len__') else 'NA'}"
+        )
     array = np.asarray(result[0], dtype=np.float32)
     if array.shape != EXPECTED_OUTPUT_SHAPE:
         raise RuntimeError(f"{label} output shape {array.shape}; expected {EXPECTED_OUTPUT_SHAPE}")
@@ -45,7 +53,7 @@ def output_array(result, label: str) -> np.ndarray:
     return np.ascontiguousarray(array)
 
 
-def metrics(reference: np.ndarray, candidate: np.ndarray) -> dict[str, float]:
+def error_metrics(reference: np.ndarray, candidate: np.ndarray) -> dict[str, float]:
     ref64 = reference.astype(np.float64, copy=False)
     cand64 = candidate.astype(np.float64, copy=False)
     diff = cand64 - ref64
@@ -54,7 +62,49 @@ def metrics(reference: np.ndarray, candidate: np.ndarray) -> dict[str, float]:
         "max_abs_error": float(abs_diff.max()),
         "mean_abs_error": float(abs_diff.mean()),
         "rmse": float(np.sqrt(np.mean(diff**2))),
-        "argmax_agreement": float(np.mean(reference.argmax(axis=1) == candidate.argmax(axis=1))),
+    }
+
+
+def softmax(array: np.ndarray) -> np.ndarray:
+    shifted = array.astype(np.float64, copy=False) - np.max(array, axis=1, keepdims=True)
+    exp = np.exp(shifted)
+    probs = exp / np.sum(exp, axis=1, keepdims=True)
+    return probs.astype(np.float32)
+
+
+def metrics(reference: np.ndarray, candidate: np.ndarray) -> dict[str, float | int]:
+    raw = error_metrics(reference, candidate)
+
+    # Remove each pixel's class-common offset. Softmax and argmax are invariant
+    # to such an offset, so this better reflects decision-relevant logit drift.
+    ref_centered = reference - reference.mean(axis=1, keepdims=True)
+    cand_centered = candidate - candidate.mean(axis=1, keepdims=True)
+    centered = error_metrics(ref_centered, cand_centered)
+
+    ref_prob = softmax(reference)
+    cand_prob = softmax(candidate)
+    probability = error_metrics(ref_prob, cand_prob)
+
+    ref_class = reference.argmax(axis=1)
+    cand_class = candidate.argmax(axis=1)
+    disagreement_pixels = int(np.count_nonzero(ref_class != cand_class))
+    total_pixels = int(ref_class.size)
+
+    return {
+        **raw,
+        "centered_logit_max_abs_error": centered["max_abs_error"],
+        "centered_logit_mean_abs_error": centered["mean_abs_error"],
+        "centered_logit_rmse": centered["rmse"],
+        "probability_max_abs_error": probability["max_abs_error"],
+        "probability_mean_abs_error": probability["mean_abs_error"],
+        "probability_rmse": probability["rmse"],
+        "argmax_agreement": float(np.mean(ref_class == cand_class)),
+        "disagreement_pixels": disagreement_pixels,
+        "total_pixels": total_pixels,
+        "floating_logit_min": float(reference.min()),
+        "floating_logit_max": float(reference.max()),
+        "fixed_logit_min": float(candidate.min()),
+        "fixed_logit_max": float(candidate.max()),
     }
 
 
@@ -158,7 +208,8 @@ def main() -> int:
         rows.append(row)
         print(
             f"[{position:03d}/{len(records):03d}] {record['sample_id']} w{record['window_index']} "
-            f"argmax={m['argmax_agreement']:.8f} max_abs={m['max_abs_error']:.6g} "
+            f"argmax={m['argmax_agreement']:.8f} disagree={m['disagreement_pixels']} "
+            f"raw_max={m['max_abs_error']:.5g} prob_max={m['probability_max_abs_error']:.5g} "
             f"fp={floating_ms:.1f}ms bie={fixed_ms:.1f}ms"
         )
 
@@ -171,9 +222,12 @@ def main() -> int:
     mean_argmax = float(np.mean([r["argmax_agreement"] for r in rows]))
     min_argmax = float(np.min([r["argmax_agreement"] for r in rows]))
     max_abs = float(np.max([r["max_abs_error"] for r in rows]))
-    mean_abs = float(np.mean([r["mean_abs_error"] for r in rows]))
-    rmse = float(np.mean([r["rmse"] for r in rows]))
+    max_prob_abs = float(np.max([r["probability_max_abs_error"] for r in rows]))
+    mean_prob_rmse = float(np.mean([r["probability_rmse"] for r in rows]))
+    mean_centered_rmse = float(np.mean([r["centered_logit_rmse"] for r in rows]))
     mean_bie_ms = float(np.mean([r["bie_ms"] for r in rows]))
+    disagreement_pixels = int(sum(r["disagreement_pixels"] for r in rows))
+    total_pixels = int(sum(r["total_pixels"] for r in rows))
 
     summary = {
         "onnx": str(onnx_path),
@@ -186,9 +240,12 @@ def main() -> int:
         "metrics": {
             "mean_argmax_agreement": mean_argmax,
             "min_argmax_agreement": min_argmax,
-            "max_abs_error": max_abs,
-            "mean_of_window_mean_abs_error": mean_abs,
-            "mean_window_rmse": rmse,
+            "disagreement_pixels": disagreement_pixels,
+            "total_pixels": total_pixels,
+            "max_raw_logit_abs_error": max_abs,
+            "mean_centered_logit_rmse": mean_centered_rmse,
+            "max_softmax_probability_abs_error": max_prob_abs,
+            "mean_softmax_probability_rmse": mean_prob_rmse,
             "mean_bie_simulator_ms_per_window": mean_bie_ms,
         },
         "elapsed_seconds": time.perf_counter() - started_all,
@@ -204,8 +261,11 @@ def main() -> int:
     print(f"Windows: {len(rows)}")
     print(f"mean argmax agreement: {mean_argmax:.8f}")
     print(f"min argmax agreement: {min_argmax:.8f}")
-    print(f"max absolute error: {max_abs:.8g}")
-    print(f"mean window RMSE: {rmse:.8g}")
+    print(f"disagreement pixels: {disagreement_pixels}/{total_pixels}")
+    print(f"max raw-logit absolute error: {max_abs:.8g}")
+    print(f"mean centered-logit RMSE: {mean_centered_rmse:.8g}")
+    print(f"max softmax-probability absolute error: {max_prob_abs:.8g}")
+    print(f"mean softmax-probability RMSE: {mean_prob_rmse:.8g}")
     print(f"mean BIE simulator time/window: {mean_bie_ms:.1f} ms")
     print(f"Summary: {summary_path}")
     print(f"Per-window: {csv_path}")
