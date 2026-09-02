@@ -8,6 +8,7 @@ image. It performs only the floating-point preparation gate:
 3. save optimized ONNX
 4. create ktc.ModelConfig for platform 720
 5. run IP evaluation to expose unsupported/CPU operators and estimated NPU cost
+6. persist Kneron's model_fx_report.html/json beside the requested report
 
 No quantization or compilation is performed here.
 """
@@ -16,12 +17,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections import Counter
 from pathlib import Path
 
-import onnx
 import kneronnxopt
 import ktc
+import onnx
 
 
 def graph_summary(model: onnx.ModelProto) -> dict:
@@ -45,15 +47,16 @@ def main() -> int:
     parser.add_argument("--model-version", default="8b28")
     args = parser.parse_args()
 
-    source = Path(args.input)
-    output = Path(args.output)
-    report = Path(args.report)
+    source = Path(args.input).resolve()
+    output = Path(args.output).resolve()
+    report = Path(args.report).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     report.parent.mkdir(parents=True, exist_ok=True)
 
     print("Radiation Edge AI - Kneron ONNX optimize/evaluate")
     print(f"Input: {source}")
     print(f"Platform: {args.platform}")
+    print(f"Persistent diagnostic directory: {report.parent}")
     print("")
 
     if not source.is_file():
@@ -63,7 +66,7 @@ def main() -> int:
     original = onnx.load(str(source))
     onnx.checker.check_model(original)
     before = graph_summary(original)
-    print(f" - checker: PASS")
+    print(" - checker: PASS")
     print(f" - nodes: {before['nodes']}")
     print(" - operators: " + ", ".join(f"{k}={v}" for k, v in before["operators"].items()))
 
@@ -84,8 +87,30 @@ def main() -> int:
         str(args.platform),
         onnx_model=optimized,
     )
-    evaluation = km.evaluate()
-    print(evaluation)
+
+    # KTC writes model_fx_report.html/json into the current working directory.
+    # Run evaluation from the persistent report directory so Docker --rm does
+    # not discard the diagnostics when the container exits.
+    old_cwd = Path.cwd()
+    try:
+        os.chdir(report.parent)
+        evaluation = km.evaluate()
+    finally:
+        os.chdir(old_cwd)
+
+    evaluation_text = str(evaluation)
+    print(evaluation_text)
+
+    fx_html = report.parent / "model_fx_report.html"
+    fx_json = report.parent / "model_fx_report.json"
+    hardware_supported = not any(
+        marker in evaluation_text.lower()
+        for marker in (
+            "hw not support",
+            "failure for model",
+            "err:",
+        )
+    )
 
     payload = {
         "input": str(source),
@@ -95,14 +120,22 @@ def main() -> int:
         "model_version": args.model_version,
         "before": before,
         "after": after,
-        "evaluation": str(evaluation),
+        "evaluation": evaluation_text,
+        "hardware_supported": hardware_supported,
+        "kneron_fx_report_html": str(fx_html) if fx_html.is_file() else None,
+        "kneron_fx_report_json": str(fx_json) if fx_json.is_file() else None,
     }
     report.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     print("")
     print("KNERON KL720 FLOATING-POINT GATE COMPLETE: YES")
+    print(f"KL720 HW SUPPORT: {'YES' if hardware_supported else 'NO'}")
     print(f"Optimized ONNX: {output}")
     print(f"Report: {report}")
+    if fx_html.is_file():
+        print(f"FX HTML: {fx_html}")
+    if fx_json.is_file():
+        print(f"FX JSON: {fx_json}")
     return 0
 
 
