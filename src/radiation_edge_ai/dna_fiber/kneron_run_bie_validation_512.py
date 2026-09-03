@@ -130,6 +130,15 @@ def parse_image_indices(value: str | None) -> set[int] | None:
     return result
 
 
+def parse_sample_ids(value: str | None) -> set[str] | None:
+    if value is None:
+        return None
+    result = {token.strip() for token in value.split(",") if token.strip()}
+    if not result:
+        raise argparse.ArgumentTypeError("--sample-ids selected no sample IDs")
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--onnx", required=True)
@@ -142,11 +151,24 @@ def main() -> int:
         default=None,
         help=(
             "Optional comma-separated 0-based image_index values from the validation "
-            "manifest, e.g. 1,2,15,18. All nine windows of each selected image are run."
+            "manifest. All nine windows of each selected image are run. Prefer "
+            "--sample-ids for human-readable selection."
+        ),
+    )
+    parser.add_argument(
+        "--sample-ids",
+        default=None,
+        help=(
+            "Optional comma-separated frozen sample IDs, e.g. "
+            "11__tile_17,7__tile_6,9__tile_16. All nine windows of each selected "
+            "sample are run."
         ),
     )
     parser.add_argument("--limit", type=int, default=None, help="Limit number of windows after image filtering")
     args = parser.parse_args()
+
+    if args.image_indices is not None and args.sample_ids is not None:
+        raise SystemExit("Use only one of --image-indices or --sample-ids")
 
     onnx_path = Path(args.onnx).resolve()
     bie_path = Path(args.bie).resolve()
@@ -171,7 +193,9 @@ def main() -> int:
     all_records = manifest.get("records", [])
 
     selected_indices = parse_image_indices(args.image_indices)
+    selected_sample_ids = parse_sample_ids(args.sample_ids)
     records = all_records
+
     if selected_indices is not None:
         available_indices = {int(record["image_index"]) for record in all_records}
         missing = sorted(selected_indices - available_indices)
@@ -184,6 +208,19 @@ def main() -> int:
             record for record in all_records
             if int(record["image_index"]) in selected_indices
         ]
+    elif selected_sample_ids is not None:
+        available_sample_ids = {str(record["sample_id"]) for record in all_records}
+        missing = sorted(selected_sample_ids - available_sample_ids)
+        if missing:
+            raise RuntimeError(
+                f"Requested sample IDs not found in validation manifest: {missing}; "
+                f"available={sorted(available_sample_ids)}"
+            )
+        records = [
+            record for record in all_records
+            if str(record["sample_id"]) in selected_sample_ids
+        ]
+
     if args.limit is not None:
         records = records[: args.limit]
     if not records:
@@ -201,7 +238,7 @@ def main() -> int:
     print(f"ONNX: {onnx_path}")
     print(f"BIE: {bie_path}")
     print(f"Validation windows: {len(records)}")
-    if selected_indices is not None:
+    if selected_indices is not None or selected_sample_ids is not None:
         print(
             "Selected images: "
             + ", ".join(f"{index}:{sample_id}" for index, sample_id in selected_samples)
@@ -295,6 +332,7 @@ def main() -> int:
         "validation_manifest": str(manifest_path),
         "platform": args.platform,
         "selected_image_indices": sorted(selected_indices) if selected_indices is not None else None,
+        "selected_sample_ids": sorted(selected_sample_ids) if selected_sample_ids is not None else None,
         "selected_samples": [
             {"image_index": index, "sample_id": sample_id}
             for index, sample_id in selected_samples
