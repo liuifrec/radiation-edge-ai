@@ -108,6 +108,28 @@ def metrics(reference: np.ndarray, candidate: np.ndarray) -> dict[str, float | i
     }
 
 
+def parse_image_indices(value: str | None) -> set[int] | None:
+    if value is None:
+        return None
+    result: set[int] = set()
+    for token in value.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            index = int(token)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(
+                f"Invalid image index {token!r}; expected comma-separated integers"
+            ) from exc
+        if index < 0:
+            raise argparse.ArgumentTypeError("Image indices must be >= 0")
+        result.add(index)
+    if not result:
+        raise argparse.ArgumentTypeError("--image-indices selected no indices")
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--onnx", required=True)
@@ -115,7 +137,15 @@ def main() -> int:
     parser.add_argument("--validation-manifest", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--platform", type=int, default=720)
-    parser.add_argument("--limit", type=int, default=None, help="Limit number of windows for smoke testing")
+    parser.add_argument(
+        "--image-indices",
+        default=None,
+        help=(
+            "Optional comma-separated 0-based image_index values from the validation "
+            "manifest, e.g. 1,2,15,18. All nine windows of each selected image are run."
+        ),
+    )
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of windows after image filtering")
     args = parser.parse_args()
 
     onnx_path = Path(args.onnx).resolve()
@@ -138,16 +168,44 @@ def main() -> int:
     if manifest.get("overlap") != 0.5:
         raise RuntimeError(f"Expected frozen overlap 0.5, got {manifest.get('overlap')}")
     input_name = manifest.get("input_name", "input")
-    records = manifest.get("records", [])
+    all_records = manifest.get("records", [])
+
+    selected_indices = parse_image_indices(args.image_indices)
+    records = all_records
+    if selected_indices is not None:
+        available_indices = {int(record["image_index"]) for record in all_records}
+        missing = sorted(selected_indices - available_indices)
+        if missing:
+            raise RuntimeError(
+                f"Requested image indices not found in validation manifest: {missing}; "
+                f"available={sorted(available_indices)}"
+            )
+        records = [
+            record for record in all_records
+            if int(record["image_index"]) in selected_indices
+        ]
     if args.limit is not None:
         records = records[: args.limit]
     if not records:
         raise RuntimeError("No validation windows found")
 
+    selected_samples = []
+    seen_samples = set()
+    for record in records:
+        sample = (int(record["image_index"]), record["sample_id"])
+        if sample not in seen_samples:
+            selected_samples.append(sample)
+            seen_samples.add(sample)
+
     print("Radiation Edge AI - KL720 DNAi BIE fixed-point validation")
     print(f"ONNX: {onnx_path}")
     print(f"BIE: {bie_path}")
     print(f"Validation windows: {len(records)}")
+    if selected_indices is not None:
+        print(
+            "Selected images: "
+            + ", ".join(f"{index}:{sample_id}" for index, sample_id in selected_samples)
+        )
     print(f"Input name: {input_name}")
     print(f"Platform: {args.platform}")
     print("Comparison: Kneron floating-point ONNX simulator vs fixed-point BIE simulator")
@@ -236,6 +294,11 @@ def main() -> int:
         "bie_sha256": sha256_file(bie_path),
         "validation_manifest": str(manifest_path),
         "platform": args.platform,
+        "selected_image_indices": sorted(selected_indices) if selected_indices is not None else None,
+        "selected_samples": [
+            {"image_index": index, "sample_id": sample_id}
+            for index, sample_id in selected_samples
+        ],
         "n_windows": len(rows),
         "metrics": {
             "mean_argmax_agreement": mean_argmax,
