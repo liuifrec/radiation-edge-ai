@@ -20,7 +20,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
+
+# Support the repository's established direct-script invocation style:
+#   python .\src\radiation_edge_ai\dna_fiber\crosswalk_....py
+# In that mode Python places only the script directory on sys.path, not the
+# repository's ``src`` root, so absolute ``radiation_edge_ai`` imports would
+# otherwise fail unless the package happened to be installed in the env.
+SRC_ROOT = Path(__file__).resolve().parents[2]
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from dnafiber.postprocess import refine_segmentation
 
