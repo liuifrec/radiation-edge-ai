@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -33,13 +34,30 @@ import numpy as np
 
 from dnafiber.postprocess import refine_segmentation
 
-from radiation_edge_ai.dna_fiber.evaluate_bie_biological_fidelity_512 import (
-    GRADERS,
-    MATCH_IOU,
-    PIXEL_SIZE_UM,
-    read_human_mask,
-    sha256_file,
-)
+GRADERS = ("H1", "H2", "H3", "H4")
+MATCH_IOU = 0.5
+PIXEL_SIZE_UM = 0.26
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_human_mask(path: Path) -> np.ndarray:
+    image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise RuntimeError(f"Could not read annotation: {path}")
+    if image.ndim < 3:
+        raise RuntimeError(f"Expected RGB annotation mask: {path}")
+    image = image[:, :, :3][:, :, ::-1]
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    mask[image[:, :, 0] > 150] = 1
+    mask[image[:, :, 1] > 150] = 2
+    return mask
 
 
 @dataclass(frozen=True)
@@ -129,7 +147,6 @@ def main() -> int:
     if not available:
         raise RuntimeError("No completed biological-fidelity variant directories found")
 
-    # Every variant should share the exact same floating 512 segmentation.
     floating_masks = {
         name: read_segmentation(path / "floating_segmentation_class_ids.png")
         for name, path in available.items()
@@ -212,8 +229,6 @@ def main() -> int:
 
     extra_rows = []
     for name, fibers in bie_fibers.items():
-        # Human matching is evaluated directly for each BIE set, so a BIE-only
-        # object can still be recognized as human-supported even if FP missed it.
         bie_to_human = {}
         for grader, h_fibers in human_fibers.items():
             matches = greedy_matches(fibers, h_fibers)
