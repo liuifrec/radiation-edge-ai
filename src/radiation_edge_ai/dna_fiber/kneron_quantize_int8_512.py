@@ -1,9 +1,12 @@
-"""Quantize the KL720-compatible DNAi MobileOne-S1 512 model to INT8.
+"""Quantize the KL720-compatible DNAi MobileOne-S1 512 model to fixed point.
 
-Run this script inside the pinned Kneron Toolchain Docker image. It consumes the
-public-training calibration manifest produced by ``prepare_int8_calibration_512``
-and the already Kneron-optimized 512x512 ONNX model, then runs
-``ktc.ModelConfig.analysis`` to generate the fixed-point BIE model.
+Run this script inside the pinned Kneron Toolchain Docker image. It consumes a
+public-training calibration manifest and the already Kneron-optimized 512x512
+ONNX model, then runs ``ktc.ModelConfig.analysis`` to generate a BIE model.
+
+The CLI exposes Kneron's documented PTQ range-tuning controls so quantization
+experiments can be reproduced without editing source code. The default values
+match the standard Kneron PTQ settings and keep the existing v1/v2 behavior.
 
 This is deliberately a quantization-only gate. It does NOT compile an NEF and
 does NOT use the frozen 20-image inter-grader validation panel. BIE biological
@@ -81,6 +84,43 @@ def main() -> int:
     parser.add_argument("--model-id", type=int, default=32769)
     parser.add_argument("--model-version", default="8b28")
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument(
+        "--datapath-range-method",
+        choices=("percentage", "mmse"),
+        default="percentage",
+        help="Kneron datapath dynamic-range estimator",
+    )
+    parser.add_argument(
+        "--percentage",
+        type=float,
+        default=0.999,
+        help="Retained datapath fraction in percentage mode (Kneron default 0.999)",
+    )
+    parser.add_argument(
+        "--percentage-16b",
+        type=float,
+        default=0.999999,
+        help="Retained 16-bit datapath fraction in percentage mode",
+    )
+    parser.add_argument(
+        "--percentile",
+        type=float,
+        default=0.001,
+        help="MMSE search-range parameter (Kneron default 0.001)",
+    )
+    parser.add_argument(
+        "--outlier-factor",
+        type=float,
+        default=1.0,
+        help="MMSE outlier factor; larger values reduce outlier removal",
+    )
+    parser.add_argument(
+        "--optimize",
+        type=int,
+        choices=(0, 1, 2, 3, 4),
+        default=0,
+        help="Kneron bias/feature-map optimization level",
+    )
     args = parser.parse_args()
 
     onnx_path = Path(args.onnx).resolve()
@@ -94,13 +134,32 @@ def main() -> int:
         raise FileNotFoundError(manifest_path)
     if args.threads <= 0:
         raise SystemExit("--threads must be positive")
+    if not 0.0 < args.percentage <= 1.0:
+        raise SystemExit("--percentage must be in (0, 1]")
+    if not 0.0 < args.percentage_16b <= 1.0:
+        raise SystemExit("--percentage-16b must be in (0, 1]")
+    if args.percentage > args.percentage_16b:
+        raise SystemExit("--percentage must be <= --percentage-16b")
+    if args.percentile <= 0.0:
+        raise SystemExit("--percentile must be positive")
+    if args.outlier_factor <= 0.0:
+        raise SystemExit("--outlier-factor must be positive")
 
-    print("Radiation Edge AI - KL720 DNAi INT8 calibration")
+    print("Radiation Edge AI - KL720 DNAi fixed-point calibration")
     print(f"ONNX: {onnx_path}")
     print(f"Calibration manifest: {manifest_path}")
     print(f"Platform: {args.platform}")
     print(f"Model ID/version: {args.model_id}/{args.model_version}")
     print(f"Threads: {args.threads}")
+    print(
+        "PTQ: "
+        f"range={args.datapath_range_method} "
+        f"percentage={args.percentage} "
+        f"percentage_16b={args.percentage_16b} "
+        f"percentile={args.percentile} "
+        f"outlier_factor={args.outlier_factor} "
+        f"optimize={args.optimize}"
+    )
     print("")
 
     print("[Load optimized ONNX]")
@@ -110,7 +169,7 @@ def main() -> int:
     if len(input_names) != 1:
         raise RuntimeError(f"Expected exactly one model input, got {input_names}")
     input_name = input_names[0]
-    print(f" - checker: PASS")
+    print(" - checker: PASS")
     print(f" - input: {input_name}")
     print(f" - ONNX SHA256: {sha256_file(onnx_path)}")
 
@@ -152,9 +211,9 @@ def main() -> int:
 
     print(f" - tensors: {len(arrays)}")
     print(f" - shape: {EXPECTED_SHAPE}")
-    print(f" - dtype: float32")
+    print(" - dtype: float32")
     print(f" - global range: [{global_min:.6f}, {global_max:.6f}]")
-    print(f" - validation panel used for calibration: NO")
+    print(" - validation panel used for calibration: NO")
 
     print("[Create KL720 ModelConfig]")
     km = ktc.ModelConfig(
@@ -165,13 +224,24 @@ def main() -> int:
     )
     print(" - Success")
 
-    print("[INT8 fixed-point analysis]")
+    print("[Fixed-point analysis]")
     input_mapping = {input_name: arrays}
     old_cwd = Path.cwd()
     started = time.time()
     try:
         os.chdir(output_dir)
-        bie_returned = Path(km.analysis(input_mapping, threads=args.threads)).resolve()
+        bie_returned = Path(
+            km.analysis(
+                input_mapping,
+                threads=args.threads,
+                datapath_range_method=args.datapath_range_method,
+                percentage=args.percentage,
+                percentage_16b=args.percentage_16b,
+                percentile=args.percentile,
+                outlier_factor=args.outlier_factor,
+                optimize=args.optimize,
+            )
+        ).resolve()
     finally:
         os.chdir(old_cwd)
 
@@ -192,6 +262,14 @@ def main() -> int:
         artifacts[filename] = copy_if_present(filename, output_dir, started)
 
     elapsed = time.time() - started
+    ptq_config = {
+        "datapath_range_method": args.datapath_range_method,
+        "percentage": args.percentage,
+        "percentage_16b": args.percentage_16b,
+        "percentile": args.percentile,
+        "outlier_factor": args.outlier_factor,
+        "optimize": args.optimize,
+    }
     summary = {
         "onnx": str(onnx_path),
         "onnx_sha256": sha256_file(onnx_path),
@@ -206,6 +284,7 @@ def main() -> int:
         "model_id": args.model_id,
         "model_version": args.model_version,
         "threads": args.threads,
+        "ptq_config": ptq_config,
         "bie_returned": str(bie_returned),
         "bie_persistent": str(bie_destination),
         "bie_sha256": sha256_file(bie_destination),
@@ -218,9 +297,10 @@ def main() -> int:
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     print("")
-    print("KL720 INT8 ANALYSIS COMPLETE: YES")
+    print("KL720 FIXED-POINT ANALYSIS COMPLETE: YES")
     print("BIE GENERATED: YES")
     print(f"Calibration tensors: {len(arrays)}")
+    print(f"PTQ config: {json.dumps(ptq_config, sort_keys=True)}")
     print(f"BIE: {bie_destination}")
     print(f"BIE SHA256: {summary['bie_sha256']}")
     print(f"BIE size: {summary['bie_size_bytes'] / 1024**2:.2f} MiB")
