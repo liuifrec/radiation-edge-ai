@@ -24,6 +24,7 @@ import numpy as np
 EXPECTED_NEF_SHA256 = "4b3dfec9a61c99e186dd4b8482fa5b06e6a4958f325ed4a0db0546f1dcab2bfc"
 EXPECTED_INPUT_SHAPE = (1, 3, 512, 512)
 EXPECTED_OUTPUT_SHAPE = (1, 3, 512, 512)
+EXPECTED_KL720_PRODUCT_ID = 0x720
 
 
 def sha256_file(path: Path) -> str:
@@ -153,7 +154,16 @@ def main() -> int:
     if not matching:
         visible = [getattr(d, "usb_port_id", None) for d in descriptors]
         raise RuntimeError(f"KL720 USB port {args.port} not found; visible ports={visible}")
-    print(f"[Device] port={args.port} detected")
+    device_descriptor = matching[0]
+    product_id = int(getattr(device_descriptor, "product_id", -1))
+    if product_id != EXPECTED_KL720_PRODUCT_ID:
+        raise RuntimeError(
+            f"USB port {args.port} is not a KL720: product_id={product_id}, "
+            f"expected={EXPECTED_KL720_PRODUCT_ID}"
+        )
+    firmware = getattr(device_descriptor, "firmware", getattr(device_descriptor, "firmware_version", "<unknown>"))
+    print(f"[Device] port={args.port} KL720 detected (product_id=0x{product_id:x})")
+    print(f"  firmware: {firmware}")
 
     try:
         device_group = kp.core.connect_devices(usb_port_ids=[args.port])
@@ -272,6 +282,7 @@ def main() -> int:
         "input_shape": list(array.shape),
         "input_dtype": str(array.dtype),
         "usb_port": args.port,
+        "product_id": product_id,
         "timeout_ms": args.timeout_ms,
         "model_id": int(model.id),
         "nef_input_shape": list(input_shape),
