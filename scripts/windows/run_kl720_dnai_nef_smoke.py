@@ -1,10 +1,14 @@
 """Run one frozen DNAi 512x512 validation window on the physical KL720.
 
 This script must be executed with the known-good Kneron PLUS Python runtime,
-not the separate DNAi reference environment. It deliberately reuses the
-installed PLUS ExampleHelper.convert_onnx_data_to_npu_data implementation so
-host-side quantization and NPU re-layout exactly follow the user's installed
-PLUS 3.2.0 examples.
+not the separate DNAi reference environment.
+
+Important KL720 detail:
+- KL520/KL630/KL720 NEF tensor descriptors use tensor_shape_info.v1.shape_npu.
+- Their Generic Data path requires host-side fixed-point quantization and manual
+  NPU re-layout (4W4C8B, 1W16C8B, or 16W1C8B).
+- The newer convert_onnx_data_to_npu_data helper is a KL730/v2-descriptor path
+  and must not be used for this KL720 model.
 
 Input is the already-normalized float32 ONNX tensor used by the frozen BIE
 validation. No DNAi image normalization is repeated here.
@@ -15,7 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import sys
+import math
 import time
 from pathlib import Path
 
@@ -24,7 +28,6 @@ import numpy as np
 EXPECTED_NEF_SHA256 = "4b3dfec9a61c99e186dd4b8482fa5b06e6a4958f325ed4a0db0546f1dcab2bfc"
 EXPECTED_INPUT_SHAPE = (1, 3, 512, 512)
 EXPECTED_OUTPUT_SHAPE = (1, 3, 512, 512)
-EXPECTED_KL720_PRODUCT_ID = 0x720
 
 
 def sha256_file(path: Path) -> str:
@@ -73,10 +76,17 @@ def extract_array(node_output) -> np.ndarray:
 
 
 def descriptor_shape(tensor_descriptor) -> tuple[int, ...]:
+    """Return logical BCHW shape across KL720(v1) and newer(v2) descriptors."""
     info = tensor_descriptor.tensor_shape_info
+    if hasattr(info, "v1") and hasattr(info.v1, "shape_npu"):
+        return tuple(int(v) for v in info.v1.shape_npu)
     if hasattr(info, "v2") and hasattr(info.v2, "shape"):
         return tuple(int(v) for v in info.v2.shape)
-    raise RuntimeError("NEF tensor descriptor does not expose v2.shape")
+    public = [name for name in dir(info) if not name.startswith("_")]
+    raise RuntimeError(
+        "NEF tensor descriptor exposes neither v1.shape_npu nor v2.shape; "
+        f"tensor_shape_info attributes={public}"
+    )
 
 
 def scan_descriptors(kp):
@@ -90,6 +100,106 @@ def scan_descriptors(kp):
     return list(descriptors)
 
 
+def kl720_quantization(input_node) -> tuple[int, float]:
+    params = input_node.quantization_parameters
+    if not hasattr(params, "v1"):
+        raise RuntimeError("KL720 input quantization parameters do not expose v1")
+    descriptors = params.v1.quantized_fixed_point_descriptor_list
+    if len(descriptors) != 1:
+        raise RuntimeError(
+            "Expected one KL720 input fixed-point descriptor, "
+            f"got {len(descriptors)}"
+        )
+    item = descriptors[0]
+    radix = int(item.radix)
+    scale_obj = item.scale
+    scale = float(scale_obj.value if hasattr(scale_obj, "value") else scale_obj)
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise RuntimeError(f"Invalid KL720 input scale: {scale}")
+    return radix, scale
+
+
+def pack_kl720_input(kp, input_node, onnx_data: np.ndarray) -> tuple[bytes, dict[str, object]]:
+    """Quantize normalized BCHW ONNX input and re-layout it for KL720 NPU input."""
+    shape = descriptor_shape(input_node)
+    if shape != EXPECTED_INPUT_SHAPE:
+        raise RuntimeError(f"KL720 NEF input shape {shape}; expected {EXPECTED_INPUT_SHAPE}")
+    if onnx_data.shape != shape:
+        raise RuntimeError(f"ONNX input shape {onnx_data.shape}; NEF expects {shape}")
+
+    batch, channels, height, width = shape
+    if batch != 1:
+        raise RuntimeError(f"Only batch=1 is supported by this smoke test, got {batch}")
+
+    radix, scale = kl720_quantization(input_node)
+    quantization_factor = float(np.power(2.0, radix) * scale)
+
+    # Frozen validation tensor is BCHW. The documented KL720 re-layout example
+    # consumes HWC values before packing channel blocks, so transpose only after
+    # preserving the exact already-normalized float values.
+    hwc = np.asarray(onnx_data[0].transpose(1, 2, 0), dtype=np.float32)
+    quantized = np.rint(hwc * quantization_factor)
+    quantized = np.clip(quantized, -128, 127).astype(np.int8)
+
+    layout = input_node.data_layout
+    if layout == kp.ModelTensorDataLayout.KP_MODEL_TENSOR_DATA_LAYOUT_4W4C8B:
+        width_align_base = 4
+        channel_align_base = 4
+        layout_name = "4W4C8B"
+    elif layout == kp.ModelTensorDataLayout.KP_MODEL_TENSOR_DATA_LAYOUT_1W16C8B:
+        width_align_base = 1
+        channel_align_base = 16
+        layout_name = "1W16C8B"
+    elif layout == kp.ModelTensorDataLayout.KP_MODEL_TENSOR_DATA_LAYOUT_16W1C8B:
+        width_align_base = 16
+        channel_align_base = 1
+        layout_name = "16W1C8B"
+    else:
+        raise RuntimeError(
+            "Unsupported KL720 NPU input layout for this validated path: "
+            f"{layout}"
+        )
+
+    width_aligned = width_align_base * math.ceil(width / float(width_align_base))
+    channel_blocks = math.ceil(channels / float(channel_align_base))
+
+    # KL630/KL720 documented dimension order: channel-block x H x aligned-W x
+    # channels-within-block.
+    relayout = np.zeros(
+        (channel_blocks, height, width_aligned, channel_align_base),
+        dtype=np.int8,
+    )
+
+    channel_offset = 0
+    for block in range(channel_blocks):
+        channel_end = min(channel_offset + channel_align_base, channels)
+        count = channel_end - channel_offset
+        relayout[block, :height, :width, :count] = hwc_quant = quantized[
+            :, :, channel_offset:channel_end
+        ]
+        if hwc_quant.shape != (height, width, count):
+            raise RuntimeError(
+                f"Unexpected quantized block shape {hwc_quant.shape}; "
+                f"expected {(height, width, count)}"
+            )
+        channel_offset = channel_end
+
+    metadata = {
+        "radix": radix,
+        "scale": scale,
+        "quantization_factor": quantization_factor,
+        "layout": layout_name,
+        "width_align_base": width_align_base,
+        "channel_align_base": channel_align_base,
+        "width_aligned": width_aligned,
+        "channel_blocks": channel_blocks,
+        "quantized_min": int(quantized.min()),
+        "quantized_max": int(quantized.max()),
+        "buffer_bytes": int(relayout.nbytes),
+    }
+    return relayout.tobytes(), metadata
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--nef", required=True)
@@ -98,11 +208,6 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--port", type=int, default=81)
     parser.add_argument("--timeout-ms", type=int, default=10000)
-    parser.add_argument(
-        "--examples-root",
-        default=r"C:\Users\yul03\kneron_plus\python\example",
-        help="Installed Kneron PLUS Python example directory containing utils/ExampleHelper.py",
-    )
     args = parser.parse_args()
 
     nef_path = Path(args.nef).resolve()
@@ -110,10 +215,9 @@ def main() -> int:
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     bie_reference_path = Path(args.bie_reference).resolve() if args.bie_reference else None
-    examples_root = Path(args.examples_root).resolve()
 
-    for path in (nef_path, input_path, examples_root):
-        if not path.exists():
+    for path in (nef_path, input_path):
+        if not path.is_file():
             raise FileNotFoundError(path)
     if bie_reference_path is not None and not bie_reference_path.is_file():
         raise FileNotFoundError(bie_reference_path)
@@ -125,10 +229,6 @@ def main() -> int:
             f"observed={observed_nef_sha}, expected={EXPECTED_NEF_SHA256}"
         )
 
-    # Import the exact helper shipped with the installed PLUS distribution.
-    if str(examples_root) not in sys.path:
-        sys.path.insert(0, str(examples_root))
-    from utils.ExampleHelper import convert_onnx_data_to_npu_data  # type: ignore
     import kp
 
     array = np.load(input_path, allow_pickle=False)
@@ -154,16 +254,16 @@ def main() -> int:
     if not matching:
         visible = [getattr(d, "usb_port_id", None) for d in descriptors]
         raise RuntimeError(f"KL720 USB port {args.port} not found; visible ports={visible}")
-    device_descriptor = matching[0]
-    product_id = int(getattr(device_descriptor, "product_id", -1))
-    if product_id != EXPECTED_KL720_PRODUCT_ID:
+    device_desc = matching[0]
+    product_id = int(getattr(device_desc, "product_id", -1))
+    if product_id != 0x720:
         raise RuntimeError(
-            f"USB port {args.port} is not a KL720: product_id={product_id}, "
-            f"expected={EXPECTED_KL720_PRODUCT_ID}"
+            f"USB port {args.port} is not KL720: product_id={product_id:#x}"
         )
-    firmware = getattr(device_descriptor, "firmware", getattr(device_descriptor, "firmware_version", "<unknown>"))
-    print(f"[Device] port={args.port} KL720 detected (product_id=0x{product_id:x})")
-    print(f"  firmware: {firmware}")
+    print(f"[Device] port={args.port} KL720 detected (product_id=0x720)")
+    firmware = getattr(device_desc, "firmware", None)
+    if firmware is not None:
+        print(f"  firmware: {firmware}")
 
     try:
         device_group = kp.core.connect_devices(usb_port_ids=[args.port])
@@ -197,19 +297,26 @@ def main() -> int:
 
     output_shapes = [descriptor_shape(node) for node in model.output_nodes]
     print(f"[NEF descriptor] model_id={model.id}")
-    print(f"  input shape: {input_shape}")
+    print(f"  input shape (v1.shape_npu): {input_shape}")
     print(f"  input layout: {getattr(input_node, 'data_layout', '<unknown>')}")
     print(f"  output shapes: {output_shapes}")
 
-    # The .npy already is ONNX-space normalized float32 input. The PLUS helper
-    # performs only the required fixed-point quantization and NPU re-layout here.
+    # The .npy already is ONNX-space normalized float32 input. KL720 then needs
+    # host-side fixed-point quantization and v1 NPU re-layout.
     t0 = time.perf_counter()
-    npu_input_buffer = convert_onnx_data_to_npu_data(
-        tensor_descriptor=input_node,
-        onnx_data=array,
-    )
+    npu_input_buffer, pack_meta = pack_kl720_input(kp, input_node, array)
     host_pack_ms = (time.perf_counter() - t0) * 1000.0
-    print(f"[Host ONNX->NPU conversion] PASS ({host_pack_ms:.1f} ms, {len(npu_input_buffer)} bytes)")
+    print(
+        f"[Host KL720 quantize+relayout] PASS ({host_pack_ms:.1f} ms, "
+        f"{len(npu_input_buffer)} bytes)"
+    )
+    print(
+        "  "
+        f"radix={pack_meta['radix']} scale={pack_meta['scale']:.9g} "
+        f"factor={pack_meta['quantization_factor']:.9g} "
+        f"layout={pack_meta['layout']} qrange=[{pack_meta['quantized_min']},"
+        f"{pack_meta['quantized_max']}]"
+    )
 
     generic_descriptor = kp.GenericDataInferenceDescriptor(
         model_id=model.id,
@@ -233,11 +340,10 @@ def main() -> int:
     float_output_obj = kp.inference.generic_inference_retrieve_float_node(
         node_idx=0,
         generic_raw_result=raw_result,
-        channels_ordering=kp.ChannelOrdering.KP_CHANNEL_ORDERING_DEFAULT,
+        channels_ordering=kp.ChannelOrdering.KP_CHANNEL_ORDERING_CHW,
     )
     output = np.asarray(extract_array(float_output_obj), dtype=np.float32)
 
-    # Some PLUS releases omit a size-1 batch axis when returning a float node.
     if output.shape == EXPECTED_OUTPUT_SHAPE[1:]:
         output = output[None, ...]
     if output.shape != EXPECTED_OUTPUT_SHAPE:
@@ -282,13 +388,13 @@ def main() -> int:
         "input_shape": list(array.shape),
         "input_dtype": str(array.dtype),
         "usb_port": args.port,
-        "product_id": product_id,
         "timeout_ms": args.timeout_ms,
         "model_id": int(model.id),
         "nef_input_shape": list(input_shape),
         "nef_output_shapes": [list(shape) for shape in output_shapes],
         "model_load_ms": model_load_ms,
         "host_pack_ms": host_pack_ms,
+        "kl720_pack": pack_meta,
         "hardware_send_receive_ms": hardware_ms,
         "physical_output": str(output_path),
         "physical_output_shape": list(output.shape),
