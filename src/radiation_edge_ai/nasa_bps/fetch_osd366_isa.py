@@ -30,6 +30,7 @@ LEGACY_FILES_URL = (
     "https://genelab-data.ndc.nasa.gov/genelab/data/glds/files/366?page={page}&size=25"
 )
 GENELAB_BASE = "https://genelab-data.ndc.nasa.gov"
+OSDR_DOWNLOAD_BASE = "https://osdr.nasa.gov"
 USER_AGENT = "radiation-edge-ai/0.1 OSD-366-ISA-fetch"
 
 
@@ -73,28 +74,68 @@ def iter_strings(obj: Any):
             yield from iter_strings(value)
 
 
+def normalize_download_candidate(key: str, value: str) -> str | None:
+    """Normalize one OSDR/GeneLab URL field into a downloadable URL.
+
+    Current OSDR file records expose both:
+      REST_URL -> JSON metadata for the file record
+      URL      -> actual downloadable file
+
+    The REST_URL must therefore never be selected as the binary download URL.
+    """
+    key_lower = key.lower()
+    if key_lower == "rest_url" or key_lower.endswith("rest_url"):
+        return None
+    if value.startswith("http"):
+        return value
+    if value.startswith("/geode-py/"):
+        return OSDR_DOWNLOAD_BASE + value
+    if value.startswith("/datamanager/"):
+        return GENELAB_BASE + value
+    return None
+
+
 def matching_direct_url(obj: Any) -> str | None:
-    """Find a direct URL for the ISA ZIP in a heterogeneous API response."""
-    # Prefer a URL living in the same record/dict as the target filename.
+    """Find the actual downloadable URL for the ISA ZIP.
+
+    Prefer the OSDR record's exact ``URL`` field. ``REST_URL`` is an API JSON
+    endpoint and deliberately excluded.
+    """
     for record in iter_dicts(obj):
         strings = [(str(key), value) for key, value in record.items() if isinstance(value, str)]
-        if not any(ISA_NAME in value for _key, value in strings):
+        mentions_target = any(ISA_NAME in urllib.parse.unquote(value) for _key, value in strings)
+        if not mentions_target:
             continue
-        urls = [
-            value
-            for key, value in strings
-            if value.startswith("http")
-            and ("url" in key.lower() or "download" in key.lower() or ISA_NAME in value)
-        ]
-        if urls:
-            urls.sort(key=lambda value: (ISA_NAME not in value, len(value)))
-            return urls[0]
 
-    # Otherwise accept any direct-looking URL containing the target filename.
-    candidates = []
+        # OSDR's current API uses an exact URL field for the downloadable file.
+        for key, value in strings:
+            if key.lower() == "url":
+                candidate = normalize_download_candidate(key, value)
+                if candidate and ISA_NAME in urllib.parse.unquote(candidate):
+                    return candidate
+
+        # Then prefer explicit download/remote URL fields.
+        ranked: list[tuple[int, int, str]] = []
+        for key, value in strings:
+            candidate = normalize_download_candidate(key, value)
+            if not candidate or ISA_NAME not in urllib.parse.unquote(candidate):
+                continue
+            key_lower = key.lower()
+            priority = 0 if "download" in key_lower else 1 if "remote" in key_lower else 2
+            ranked.append((priority, len(candidate), candidate))
+        if ranked:
+            ranked.sort()
+            return ranked[0][2]
+
+    # Fallback: scan the whole response, still excluding REST_URL.
+    candidates: list[tuple[int, int, str]] = []
     for key, value in iter_strings(obj):
-        if value.startswith("http") and ISA_NAME in urllib.parse.unquote(value):
-            candidates.append(("download" not in key.lower() and "url" not in key.lower(), len(value), value))
+        candidate = normalize_download_candidate(key, value)
+        if candidate is None or ISA_NAME not in urllib.parse.unquote(candidate):
+            continue
+        key_lower = key.lower()
+        priority = 0 if key_lower == "url" else 1 if "download" in key_lower else 2
+        candidates.append((priority, len(candidate), candidate))
     if candidates:
         candidates.sort()
         return candidates[0][2]
@@ -131,12 +172,10 @@ def discover_from_legacy() -> tuple[str | None, str]:
         for key, value in iter_strings(payload):
             if ISA_NAME not in value:
                 continue
-            if value.startswith("/"):
-                return GENELAB_BASE + value, f"legacy GeneLab remote_url page {page}"
-            if value.startswith("http"):
-                return value, f"legacy GeneLab URL page {page}"
+            candidate = normalize_download_candidate(key, value)
+            if candidate:
+                return candidate, f"legacy GeneLab URL page {page}"
 
-        # Stop when the response clearly contains no study files / no next page.
         text = json.dumps(payload)
         if ISA_NAME not in text and page > 0 and len(text) < 1000:
             break
@@ -144,22 +183,45 @@ def discover_from_legacy() -> tuple[str | None, str]:
     return None, "legacy GeneLab discovery failed" + ("; " + "; ".join(notes) if notes else "")
 
 
-def download_zip(url: str, destination: Path) -> None:
+def resolve_json_file_record(payload: bytes, original_url: str) -> str | None:
+    """Recover if an OSDR REST metadata endpoint was passed accidentally."""
+    try:
+        obj = json.loads(payload.decode("utf-8"))
+    except Exception:
+        return None
+    candidate = matching_direct_url(obj)
+    if candidate and candidate.rstrip("/") != original_url.rstrip("/"):
+        return candidate
+    return None
+
+
+def download_zip(url: str, destination: Path) -> str:
     payload = get_bytes(url, timeout=120)
+    effective_url = url
+
+    if not payload.startswith(b"PK"):
+        recovered = resolve_json_file_record(payload, url)
+        if recovered:
+            print(f"[REST metadata] resolved direct file URL: {recovered}")
+            effective_url = recovered
+            payload = get_bytes(recovered, timeout=120)
+
     if len(payload) < 100 or not payload.startswith(b"PK"):
         head = payload[:80]
         raise RuntimeError(
             "NASA URL did not return a ZIP archive. "
-            f"received {len(payload)} bytes; first bytes={head!r}"
+            f"received {len(payload)} bytes; first bytes={head!r}; url={effective_url}"
         )
+
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(payload)
+    return effective_url
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     default_root = Path(
-        os.environ.get("RADEDGE_DATA_ROOT", r"D:\radiation-edge-ai-data\data")
+        os.environ.get("RADEDGE_DATA_ROOT", r"D:\\radiation-edge-ai-data\\data")
     ) / "nasa_bps_microscopy" / "metadata" / "osd366"
     parser.add_argument("--output", default=str(default_root / ISA_NAME))
     parser.add_argument("--refresh", action="store_true")
@@ -192,7 +254,9 @@ def main() -> int:
 
     print(f"[Discovery] {source}")
     print(f"[Download] {direct_url}")
-    download_zip(direct_url, destination)
+    effective_url = download_zip(direct_url, destination)
+    if effective_url != direct_url:
+        print(f"[Effective download] {effective_url}")
     print("")
     print("OSD-366 ISA FETCH COMPLETE: YES")
     print(f"Path: {destination}")
