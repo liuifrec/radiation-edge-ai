@@ -4,12 +4,25 @@ This file records the canonical public sources used for Tier-I reference baselin
 
 ## gamma-H2AX / 53BP1
 
-Planned starting points:
+Current priority:
 
-- **DeepFoci** — public gamma-H2AX/53BP1/DAPI microscopy with manual annotations and dose/time information.
-- **FociRad** — public gamma-H2AX radiation-biodosimetry workflow/data suitable for an early detector-oriented proof of concept.
+- **NASA Biological and Physical Sciences (BPS) Microscopy Benchmark Training Dataset** — public 53BP1 fluorescence microscopy benchmark derived from irradiated mouse fibroblast nuclei. Canonical AWS Open Data prefix: `s3://nasa-bps-training-data/Microscopy/`. NASA documents FITC/53BP1 images under `Microscopy/train/` with `meta.csv`, plus DAPI/MASK images under `Microscopy/DAPI_MASK_images/` with `meta_DAPI_MASK.csv`. The associated NASA OSDR study is OSD-366 / GLDS-366, DOI `10.26030/v8w4-rg83`. The AWS Registry states that there are no restrictions on use of this dataset.
 
-Required before use:
+Additional starting points:
+
+- **DeepFoci** — public gamma-H2AX/53BP1/DAPI microscopy with manual annotations and dose/time information; useful for manually annotated foci-localization validation.
+- **FociRad** — public gamma-H2AX radiation-biodosimetry workflow/data suitable for a detector-oriented comparison if needed.
+
+For NASA BPS, publication-grade use requires:
+
+- access date and SHA256 checksum of `meta.csv` and `meta_DAPI_MASK.csv` because the AWS dataset is updated when new data become available;
+- inventory of dose, particle type, and post-irradiation time;
+- resolution of plate/mouse/strain grouping before train/test splitting;
+- deterministic selected-image manifest with checksums;
+- explicit mapping between the AWS benchmark and OSD-366 variables where needed;
+- a phenotype-level biological-fidelity definition covering dose response, repair kinetics, radiation quality/LET, and genetic background rather than only CV metrics.
+
+For DeepFoci/FociRad, required before use:
 
 - exact dataset DOI/release;
 - license/terms;
@@ -18,6 +31,8 @@ Required before use:
 - dose and post-irradiation metadata;
 - annotation format;
 - local checksum manifest.
+
+See `docs/NASA_BPS_53BP1_PLAN.md` for the current space-radiation edge-AI work package.
 
 ## Micronucleus
 
