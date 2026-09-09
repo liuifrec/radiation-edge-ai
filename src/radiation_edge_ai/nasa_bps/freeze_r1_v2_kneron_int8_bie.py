@@ -130,15 +130,18 @@ def main():
 
     ptq = read_json(ptq_summary_path)
     checks = {
+        "status": "COMPLETE_FROZEN_DEVELOPMENT_ONLY_KL720_INT8_PTQ",
         "optimized_onnx_sha256": FROZEN_OPTIMIZED_ONNX_SHA256,
         "kneron_fp_report_sha256": FROZEN_KNERON_FP_REPORT_SHA256,
         "calibration_manifest_sha256": FROZEN_CALIBRATION_MANIFEST_SHA256,
         "calibration_freeze_sha256": FROZEN_CALIBRATION_FREEZE_SHA256,
-        "toolchain_image": PINNED_TOOLCHAIN_IMAGE,
+        "pinned_toolchain_image": PINNED_TOOLCHAIN_IMAGE,
         "toolchain_version": EXPECTED_TOOLCHAIN_VERSION,
         "platform": EXPECTED_PLATFORM,
         "model_id": EXPECTED_MODEL_ID,
         "model_version": EXPECTED_MODEL_VERSION,
+        "ptq_config_frozen_before_bie_result": True,
+        "outcome_guided_quantization_tuning": False,
         "bie_sha256": FROZEN_BIE_SHA256,
         "final_holdout_used_for_calibration": False,
         "final_holdout_read": False,
