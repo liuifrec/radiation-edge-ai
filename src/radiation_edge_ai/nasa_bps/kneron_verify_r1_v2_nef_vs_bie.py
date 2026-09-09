@@ -5,6 +5,13 @@ calibration tensor, not the final holdout, and compares Kneron fixed-point BIE
 simulation with compiled NEF simulation. No optimization, calibration, PTQ,
 BIE generation, biological evaluation, or hardware inference occurs here.
 
+The pinned historical Kneron Toolchain v0.33.1 NEF simulator has a parser bug
+for rank-1 scalar outputs: parse_setup_json_v1 indexes channel/height/width axes
+that do not exist in ONNX shape [1]. A verifier-only compatibility shim pads
+that scalar metadata with singleton axes while parsing the temporary extracted
+NEF setup JSON. It does not modify the NEF, BIE, model weights, quantization,
+input tensor, or numerical output.
+
 Python 3.7 compatible for the pinned Kneron Toolchain v0.33.1 image.
 """
 
@@ -38,6 +45,13 @@ EXPECTED_MODEL_ID = 32770
 EXPECTED_MODEL_VERSION = "8b29"
 EXPECTED_INPUT_SHAPE = (1, 3, 256, 256)
 MAX_ABS_ERROR_GATE = 1.0e-4
+
+NEF_SCALAR_PARSER_COMPAT = {
+    "installed": False,
+    "applied": False,
+    "original_output_shapes": [],
+    "patched_output_shapes": [],
+}
 
 
 def sha256_file(path):
@@ -73,6 +87,87 @@ def toolchain_version():
     return None
 
 
+def _install_nef_scalar_output_parser_compatibility():
+    """Patch only the old simulator's temporary NEF metadata parser in memory.
+
+    Toolchain v0.33.1 assumes output ONNX shapes expose channel/spatial axes.
+    Our accepted regression output is a single scalar with ONNX shape [1].
+    During NEF unpacking that parser indexes ch_dim=1 and crashes before any
+    NEF inference. For singleton scalar metadata only, pad enough trailing
+    singleton axes to satisfy the dimension indices recorded in setup JSON.
+
+    The compiled NEF file is never opened for writing and its SHA is checked
+    both before and after inference by the caller.
+    """
+    import sys_flow.compiler_v2 as compiler_v2
+
+    original = compiler_v2.parse_setup_json_v1
+    if getattr(original, "_radedge_scalar_output_compat", False):
+        NEF_SCALAR_PARSER_COMPAT["installed"] = True
+        return
+
+    def scalar_safe_parse(fn_json_raw):
+        path = Path(fn_json_raw)
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        changed = False
+
+        outputs = raw.get("outputs", [])
+        if not isinstance(outputs, list):
+            return original(fn_json_raw)
+
+        for item in outputs:
+            if not isinstance(item, dict):
+                continue
+            shape = item.get("onnx_shape")
+            if not isinstance(shape, list) or len(shape) != 1:
+                continue
+            try:
+                scalar_elements = int(np.prod(np.asarray(shape, dtype=np.int64)))
+            except Exception:
+                continue
+            if scalar_elements != 1:
+                continue
+
+            dim_indices = []
+            for key, value in item.items():
+                if key.endswith("_dim"):
+                    try:
+                        idx = int(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if idx >= 0:
+                        dim_indices.append(idx)
+            required_rank = max(dim_indices + [0]) + 1
+            if required_rank <= len(shape):
+                continue
+
+            patched_shape = list(shape) + [1] * (required_rank - len(shape))
+            NEF_SCALAR_PARSER_COMPAT["original_output_shapes"].append(list(shape))
+            NEF_SCALAR_PARSER_COMPAT["patched_output_shapes"].append(
+                list(patched_shape)
+            )
+            item["onnx_shape"] = patched_shape
+            changed = True
+
+        if not changed:
+            return original(fn_json_raw)
+
+        NEF_SCALAR_PARSER_COMPAT["applied"] = True
+        compat_path = path.with_name(path.stem + ".radedge_scalar_compat.json")
+        compat_path.write_text(json.dumps(raw), encoding="utf-8")
+        try:
+            return original(str(compat_path))
+        finally:
+            try:
+                compat_path.unlink()
+            except OSError:
+                pass
+
+    scalar_safe_parse._radedge_scalar_output_compat = True
+    compiler_v2.parse_setup_json_v1 = scalar_safe_parse
+    NEF_SCALAR_PARSER_COMPAT["installed"] = True
+
+
 def one_output(result, label):
     if not isinstance(result, (list, tuple)) or len(result) != 1:
         raise RuntimeError(
@@ -87,7 +182,10 @@ def one_output(result, label):
         raise RuntimeError("{} expected scalar output, got shape {}".format(label, array.shape))
     if not np.isfinite(array).all():
         raise RuntimeError("{} output contains non-finite values".format(label))
-    return np.ascontiguousarray(array)
+    # Normalize only the container shape for scalar comparison. This does not
+    # alter the scalar value and avoids treating simulator presentation shape
+    # (e.g. [1] vs [1,1,1,1]) as a numerical deployment difference.
+    return np.ascontiguousarray(array.reshape(-1))
 
 
 def main():
@@ -213,6 +311,12 @@ def main():
     bie_ms = (time.perf_counter() - started) * 1000.0
     bie = one_output(bie_result, "BIE")
 
+    # Toolchain v0.33.1 crashes while unpacking this rank-1 scalar-output NEF
+    # before inference. Install an in-memory parser-only compatibility shim.
+    # The NEF SHA is checked again afterwards to prove the artifact was unchanged.
+    _install_nef_scalar_output_parser_compatibility()
+    print("NEF scalar-output simulator parser compatibility shim: ARMED")
+
     started = time.perf_counter()
     nef_result = ktc.kneron_inference(
         [tensor],
@@ -222,6 +326,16 @@ def main():
     )
     nef_ms = (time.perf_counter() - started) * 1000.0
     nef = one_output(nef_result, "NEF")
+
+    # Re-hash after simulator parsing/inference. The verifier is allowed to
+    # normalize only the temporary extracted setup JSON, never the NEF itself.
+    nef_sha_after = sha256_file(nef_path)
+    if nef_sha_after != FROZEN_NEF_SHA256:
+        raise RuntimeError(
+            "Compiled NEF changed during simulator verification: before={} after={}".format(
+                nef_sha, nef_sha_after
+            )
+        )
 
     if bie.shape != nef.shape:
         raise RuntimeError("Output shape mismatch: BIE={} NEF={}".format(bie.shape, nef.shape))
@@ -237,6 +351,7 @@ def main():
         "status": "COMPLETE_ONE_SAMPLE_NEF_VS_BIE_COMPILE_INTEGRITY_GATE",
         "source_bie_sha256": bie_sha,
         "nef_sha256": nef_sha,
+        "nef_sha256_after_simulator": nef_sha_after,
         "nef_compile_summary_sha256": compile_sha,
         "bie_equivalence_freeze_sha256": equivalence_sha,
         "calibration_manifest_sha256": calibration_sha,
@@ -248,7 +363,7 @@ def main():
         "selected_tensor_index": int(record.get("index", 0)),
         "selected_sample_id": str(record.get("sample_id", "")),
         "selected_tensor_sha256": str(record["tensor_sha256"]),
-        "output_shape": list(bie.shape),
+        "output_shape_normalized_for_scalar_comparison": list(bie.shape),
         "exact_array_equal": exact,
         "max_abs_error": max_abs,
         "mean_abs_error": mean_abs,
@@ -257,6 +372,8 @@ def main():
         "verification_pass": passed,
         "bie_simulator_ms": bie_ms,
         "nef_simulator_ms": nef_ms,
+        "nef_scalar_output_parser_compatibility_shim": dict(NEF_SCALAR_PARSER_COMPAT),
+        "nef_or_bie_artifact_modified_by_compatibility_shim": False,
         "final_holdout_read": False,
         "ptq_or_bie_changed": False,
         "authorized_next_stage": (
@@ -269,8 +386,19 @@ def main():
     output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     print("")
-    print("BIE output shape: {}".format(tuple(bie.shape)))
-    print("NEF output shape: {}".format(tuple(nef.shape)))
+    print("NEF scalar-output simulator parser shim applied: {}".format(
+        "YES" if NEF_SCALAR_PARSER_COMPAT["applied"] else "NO/NOT_NEEDED"
+    ))
+    if NEF_SCALAR_PARSER_COMPAT["applied"]:
+        print(
+            "temporary output metadata shape: {} -> {}".format(
+                NEF_SCALAR_PARSER_COMPAT["original_output_shapes"],
+                NEF_SCALAR_PARSER_COMPAT["patched_output_shapes"],
+            )
+        )
+    print("compiled NEF SHA256 unchanged after simulator: YES")
+    print("BIE output shape normalized for scalar comparison: {}".format(tuple(bie.shape)))
+    print("NEF output shape normalized for scalar comparison: {}".format(tuple(nef.shape)))
     print("exact array equality: {}".format("YES" if exact else "NO"))
     print("max absolute error: {:.8g}".format(max_abs))
     print("mean absolute error: {:.8g}".format(mean_abs))
