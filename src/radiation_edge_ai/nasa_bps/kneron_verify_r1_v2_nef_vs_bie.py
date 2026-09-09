@@ -6,11 +6,11 @@ simulation with compiled NEF simulation. No optimization, calibration, PTQ,
 BIE generation, biological evaluation, or hardware inference occurs here.
 
 The pinned historical Kneron Toolchain v0.33.1 NEF simulator has a parser bug
-for rank-1 scalar outputs: parse_setup_json_v1 indexes channel/height/width axes
-that do not exist in ONNX shape [1]. A verifier-only compatibility shim pads
-that scalar metadata with singleton axes while parsing the temporary extracted
-NEF setup JSON. It does not modify the NEF, BIE, model weights, quantization,
-input tensor, or numerical output.
+for rank-1 scalar outputs: parse_setup_json_v1 hard-codes ch_dim=1 and indexes
+raw_shape [1] at that channel axis. A verifier-only compatibility shim pads the
+temporary extracted NEF output raw_shape from [1] to [1, 1] for the exact
+singleton ``burden`` output while parsing. It does not modify the NEF, BIE,
+model weights, quantization, input tensor, or numerical output.
 
 Python 3.7 compatible for the pinned Kneron Toolchain v0.33.1 image.
 """
@@ -44,13 +44,14 @@ EXPECTED_PLATFORM = 720
 EXPECTED_MODEL_ID = 32770
 EXPECTED_MODEL_VERSION = "8b29"
 EXPECTED_INPUT_SHAPE = (1, 3, 256, 256)
+EXPECTED_OUTPUT_NAME = "burden"
 MAX_ABS_ERROR_GATE = 1.0e-4
 
 NEF_SCALAR_PARSER_COMPAT = {
     "installed": False,
     "applied": False,
-    "original_output_shapes": [],
-    "patched_output_shapes": [],
+    "original_output_raw_shapes": [],
+    "patched_output_raw_shapes": [],
 }
 
 
@@ -88,16 +89,19 @@ def toolchain_version():
 
 
 def _install_nef_scalar_output_parser_compatibility():
-    """Patch only the old simulator's temporary NEF metadata parser in memory.
+    """Patch only temporary extracted NEF scalar-output metadata in memory.
 
-    Toolchain v0.33.1 assumes output ONNX shapes expose channel/spatial axes.
-    Our accepted regression output is a single scalar with ONNX shape [1].
-    During NEF unpacking that parser indexes ch_dim=1 and crashes before any
-    NEF inference. For singleton scalar metadata only, pad enough trailing
-    singleton axes to satisfy the dimension indices recorded in setup JSON.
+    The v0.33.1 parser receives raw output metadata like::
 
-    The compiled NEF file is never opened for writing and its SHA is checked
-    both before and after inference by the caller.
+        {'name': 'burden', 'shape': [1, 1, 1, 1], 'raw_shape': [1], ...}
+
+    It then sets ``onnx_shape = raw_shape`` and hard-codes ``ch_dim = 1`` before
+    evaluating ``onnx_shape[ch_dim]``. The legitimate rank-1 scalar raw_shape
+    therefore crashes before NEF numerical inference. For this exact singleton
+    burden output only, the shim changes the temporary extracted JSON raw_shape
+    from [1] to [1, 1]. Element count remains one, hardware shape remains
+    untouched, quantization remains untouched, and the compiled NEF is never
+    opened for writing.
     """
     import sys_flow.compiler_v2 as compiler_v2
 
@@ -118,35 +122,29 @@ def _install_nef_scalar_output_parser_compatibility():
         for item in outputs:
             if not isinstance(item, dict):
                 continue
-            shape = item.get("onnx_shape")
-            if not isinstance(shape, list) or len(shape) != 1:
-                continue
-            try:
-                scalar_elements = int(np.prod(np.asarray(shape, dtype=np.int64)))
-            except Exception:
-                continue
-            if scalar_elements != 1:
+            if str(item.get("name", "")) != EXPECTED_OUTPUT_NAME:
                 continue
 
-            dim_indices = []
-            for key, value in item.items():
-                if key.endswith("_dim"):
-                    try:
-                        idx = int(value)
-                    except (TypeError, ValueError):
-                        continue
-                    if idx >= 0:
-                        dim_indices.append(idx)
-            required_rank = max(dim_indices + [0]) + 1
-            if required_rank <= len(shape):
+            raw_shape = item.get("raw_shape")
+            hw_shape = item.get("shape")
+            quant = item.get("quantization", {})
+            fxp_info = quant.get("fxp_info", []) if isinstance(quant, dict) else []
+
+            if raw_shape != [1]:
+                continue
+            if hw_shape != [1, 1, 1, 1]:
+                continue
+            if not isinstance(fxp_info, list) or len(fxp_info) != 1:
                 continue
 
-            patched_shape = list(shape) + [1] * (required_rank - len(shape))
-            NEF_SCALAR_PARSER_COMPAT["original_output_shapes"].append(list(shape))
-            NEF_SCALAR_PARSER_COMPAT["patched_output_shapes"].append(
-                list(patched_shape)
+            NEF_SCALAR_PARSER_COMPAT["original_output_raw_shapes"].append(
+                list(raw_shape)
             )
-            item["onnx_shape"] = patched_shape
+            patched_raw_shape = [1, 1]
+            NEF_SCALAR_PARSER_COMPAT["patched_output_raw_shapes"].append(
+                list(patched_raw_shape)
+            )
+            item["raw_shape"] = patched_raw_shape
             changed = True
 
         if not changed:
@@ -182,9 +180,6 @@ def one_output(result, label):
         raise RuntimeError("{} expected scalar output, got shape {}".format(label, array.shape))
     if not np.isfinite(array).all():
         raise RuntimeError("{} output contains non-finite values".format(label))
-    # Normalize only the container shape for scalar comparison. This does not
-    # alter the scalar value and avoids treating simulator presentation shape
-    # (e.g. [1] vs [1,1,1,1]) as a numerical deployment difference.
     return np.ascontiguousarray(array.reshape(-1))
 
 
@@ -266,7 +261,6 @@ def main():
     if not isinstance(records, list) or len(records) != 288:
         raise RuntimeError("Expected 288 calibration records")
 
-    # Deterministically use record 0 from the already-frozen development panel.
     record = records[0]
     tensor_path = calibration_manifest_path.parent / str(record["tensor"])
     check_sha(tensor_path, str(record["tensor_sha256"]), "Selected calibration tensor")
@@ -311,9 +305,6 @@ def main():
     bie_ms = (time.perf_counter() - started) * 1000.0
     bie = one_output(bie_result, "BIE")
 
-    # Toolchain v0.33.1 crashes while unpacking this rank-1 scalar-output NEF
-    # before inference. Install an in-memory parser-only compatibility shim.
-    # The NEF SHA is checked again afterwards to prove the artifact was unchanged.
     _install_nef_scalar_output_parser_compatibility()
     print("NEF scalar-output simulator parser compatibility shim: ARMED")
 
@@ -327,8 +318,6 @@ def main():
     nef_ms = (time.perf_counter() - started) * 1000.0
     nef = one_output(nef_result, "NEF")
 
-    # Re-hash after simulator parsing/inference. The verifier is allowed to
-    # normalize only the temporary extracted setup JSON, never the NEF itself.
     nef_sha_after = sha256_file(nef_path)
     if nef_sha_after != FROZEN_NEF_SHA256:
         raise RuntimeError(
@@ -391,9 +380,9 @@ def main():
     ))
     if NEF_SCALAR_PARSER_COMPAT["applied"]:
         print(
-            "temporary output metadata shape: {} -> {}".format(
-                NEF_SCALAR_PARSER_COMPAT["original_output_shapes"],
-                NEF_SCALAR_PARSER_COMPAT["patched_output_shapes"],
+            "temporary output raw_shape: {} -> {}".format(
+                NEF_SCALAR_PARSER_COMPAT["original_output_raw_shapes"],
+                NEF_SCALAR_PARSER_COMPAT["patched_output_raw_shapes"],
             )
         )
     print("compiled NEF SHA256 unchanged after simulator: YES")
