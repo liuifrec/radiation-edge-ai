@@ -1,13 +1,18 @@
 """Run the frozen NASA BPS R1 v2 ONNX through Kneron optimize/IP evaluation.
 
-Run this script inside the official Kneron Toolchain Docker image. It performs
-floating-point deployment preparation only: verify frozen identities, optimize
-the ONNX graph, create a KL720 ModelConfig, and run IP evaluation for unsupported
-operators / estimated NPU support. No PTQ, BIE generation, NEF compilation, or
-final-holdout inference occurs here.
-"""
+This script is intentionally compatible with the pinned historical Kneron
+Toolchain image already used by this project (Python 3.7). Older Kneron images
+expose ONNX optimization through ``ktc.onnx_optimizer.onnx2onnx_flow`` whereas
+newer images may provide the standalone ``kneronnxopt`` package. The script
+supports both without changing model weights, preprocessing, biological gates,
+or any holdout data.
 
-from __future__ import annotations
+Run inside the Kneron Toolchain Docker image. This stage performs floating-point
+deployment preparation only: verify frozen identities, optimize the ONNX graph,
+create a KL720 ModelConfig, and run IP evaluation for unsupported operators /
+estimated NPU support. No PTQ, BIE generation, NEF compilation, or final-holdout
+inference occurs here.
+"""
 
 import argparse
 import hashlib
@@ -18,11 +23,14 @@ import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
-import kneronnxopt
 import ktc
 import onnx
+
+try:
+    import kneronnxopt
+except ImportError:
+    kneronnxopt = None
 
 FROZEN_ONNX_SHA256 = (
     "a65718a8f07d5bcd8707bae78d8f730d56047db21e575fa55ba5396adc49a07e"
@@ -33,7 +41,7 @@ FROZEN_ONNX_FREEZE_SHA256 = (
 EXPECTED_INPUT_SHAPE = [1, 3, 256, 256]
 
 
-def sha256_file(path: Path) -> str:
+def sha256_file(path):
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -41,28 +49,28 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def read_json(path: Path) -> dict[str, Any]:
+def read_json(path):
     obj = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(obj, dict):
-        raise RuntimeError(f"Expected JSON object: {path}")
+        raise RuntimeError("Expected JSON object: {}".format(path))
     return obj
 
 
-def graph_summary(model: onnx.ModelProto) -> dict[str, Any]:
+def dims(value_info):
+    result = []
+    tensor_type = value_info.type.tensor_type
+    for dim in tensor_type.shape.dim:
+        if dim.HasField("dim_value"):
+            result.append(int(dim.dim_value))
+        elif dim.HasField("dim_param"):
+            result.append(str(dim.dim_param))
+        else:
+            result.append(None)
+    return result
+
+
+def graph_summary(model):
     ops = Counter(node.op_type for node in model.graph.node)
-
-    def dims(value_info: Any) -> list[int | str | None]:
-        result: list[int | str | None] = []
-        tensor_type = value_info.type.tensor_type
-        for dim in tensor_type.shape.dim:
-            if dim.HasField("dim_value"):
-                result.append(int(dim.dim_value))
-            elif dim.HasField("dim_param"):
-                result.append(str(dim.dim_param))
-            else:
-                result.append(None)
-        return result
-
     initializer_names = {item.name for item in model.graph.initializer}
     inputs = [item for item in model.graph.input if item.name not in initializer_names]
     return {
@@ -74,15 +82,37 @@ def graph_summary(model: onnx.ModelProto) -> dict[str, Any]:
     }
 
 
-def read_text_if_present(path: Path | None) -> str:
+def optimize_model(model):
+    """Use the optimizer API exposed by the installed Kneron toolchain."""
+    if kneronnxopt is not None:
+        return kneronnxopt.optimize(model), "kneronnxopt.optimize", getattr(
+            kneronnxopt, "__version__", None
+        )
+
+    onnx_optimizer = getattr(ktc, "onnx_optimizer", None)
+    if onnx_optimizer is None:
+        raise RuntimeError(
+            "Pinned Kneron toolchain has neither standalone kneronnxopt nor "
+            "ktc.onnx_optimizer"
+        )
+    flow = getattr(onnx_optimizer, "onnx2onnx_flow", None)
+    if flow is None:
+        raise RuntimeError(
+            "Pinned Kneron toolchain exposes ktc.onnx_optimizer but not "
+            "onnx2onnx_flow"
+        )
+    return flow(model), "ktc.onnx_optimizer.onnx2onnx_flow", None
+
+
+def read_text_if_present(path):
     if path is None or not path.is_file():
         return ""
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def find_newest(filename: str, started: float) -> Path | None:
+def find_newest(filename, started):
     roots = (Path("/workspace/.tmp"), Path("/data1/kneron_flow"), Path("/tmp"))
-    candidates: list[Path] = []
+    candidates = []
     for root in roots:
         if not root.exists():
             continue
@@ -102,24 +132,24 @@ def find_newest(filename: str, started: float) -> Path | None:
     return max(pool, key=lambda path: path.stat().st_mtime)
 
 
-def harvest(filename: str, output_dir: Path, started: float) -> str | None:
+def harvest(filename, output_dir, started):
     source = find_newest(filename, started)
     if source is None:
         return None
     destination = output_dir / filename
     if source.resolve() != destination.resolve():
-        shutil.copy2(source, destination)
+        shutil.copy2(str(source), str(destination))
     return str(destination)
 
 
-def toolchain_version() -> str | None:
+def toolchain_version():
     for candidate in (Path("/workspace/version.txt"), Path("/workspace/VERSION")):
         if candidate.is_file():
             return candidate.read_text(encoding="utf-8", errors="replace").strip()
     return None
 
 
-def main() -> int:
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
     parser.add_argument("--onnx-freeze", required=True)
@@ -137,7 +167,11 @@ def main() -> int:
     report_path = output_dir / "kl720_fp_optimization_evaluation.json"
 
     if report_path.exists():
-        raise RuntimeError(f"KL720 floating-point gate already evaluated; refusing overwrite: {report_path}")
+        raise RuntimeError(
+            "KL720 floating-point gate already evaluated; refusing overwrite: {}".format(
+                report_path
+            )
+        )
     if not source.is_file():
         raise FileNotFoundError(source)
     if not freeze_path.is_file():
@@ -146,9 +180,17 @@ def main() -> int:
     source_sha = sha256_file(source)
     freeze_sha = sha256_file(freeze_path)
     if source_sha != FROZEN_ONNX_SHA256:
-        raise RuntimeError(f"Frozen ONNX SHA256 mismatch: expected {FROZEN_ONNX_SHA256}, got {source_sha}")
+        raise RuntimeError(
+            "Frozen ONNX SHA256 mismatch: expected {}, got {}".format(
+                FROZEN_ONNX_SHA256, source_sha
+            )
+        )
     if freeze_sha != FROZEN_ONNX_FREEZE_SHA256:
-        raise RuntimeError(f"ONNX freeze SHA256 mismatch: expected {FROZEN_ONNX_FREEZE_SHA256}, got {freeze_sha}")
+        raise RuntimeError(
+            "ONNX freeze SHA256 mismatch: expected {}, got {}".format(
+                FROZEN_ONNX_FREEZE_SHA256, freeze_sha
+            )
+        )
     freeze = read_json(freeze_path)
     if freeze.get("onnx_sha256") != FROZEN_ONNX_SHA256:
         raise RuntimeError("ONNX freeze JSON points to a different model")
@@ -157,11 +199,12 @@ def main() -> int:
 
     version = toolchain_version()
     print("Radiation Edge AI - NASA BPS R1 v2 Kneron KL720 floating-point gate")
-    print(f"frozen ONNX SHA256: {source_sha}")
-    print(f"ONNX deployment-freeze SHA256: {freeze_sha}")
-    print(f"platform: {args.platform}")
-    print(f"model ID/version: {args.model_id}/{args.model_version}")
-    print(f"Kneron toolchain version: {version or 'UNKNOWN'}")
+    print("frozen ONNX SHA256: {}".format(source_sha))
+    print("ONNX deployment-freeze SHA256: {}".format(freeze_sha))
+    print("platform: {}".format(args.platform))
+    print("model ID/version: {}/{}".format(args.model_id, args.model_version))
+    print("Kneron toolchain version: {}".format(version or "UNKNOWN"))
+    print("Python-compatible toolchain adapter: ENABLED")
     print("PTQ performed: NO")
     print("final holdout read: NO")
 
@@ -171,22 +214,31 @@ def main() -> int:
     onnx.checker.check_model(original)
     before = graph_summary(original)
     if len(before["inputs"]) != 1 or before["inputs"][0]["shape"] != EXPECTED_INPUT_SHAPE:
-        raise RuntimeError(f"Unexpected frozen ONNX input signature: {before['inputs']}")
+        raise RuntimeError(
+            "Unexpected frozen ONNX input signature: {}".format(before["inputs"])
+        )
     print("ONNX checker: PASS")
-    print(f"nodes: {before['nodes']}")
-    print("operators: " + ", ".join(f"{k}={v}" for k, v in before["operators"].items()))
+    print("nodes: {}".format(before["nodes"]))
+    print(
+        "operators: "
+        + ", ".join("{}={}".format(k, v) for k, v in before["operators"].items())
+    )
 
     print("")
     print("[Kneron optimize]")
-    optimized = kneronnxopt.optimize(original)
+    optimized, optimizer_backend, optimizer_version = optimize_model(original)
     onnx.checker.check_model(optimized)
     onnx.save(optimized, str(optimized_path))
     after = graph_summary(optimized)
     optimized_sha = sha256_file(optimized_path)
+    print("optimizer backend: {}".format(optimizer_backend))
     print("optimizer: PASS")
-    print(f"optimized ONNX SHA256: {optimized_sha}")
-    print(f"nodes: {after['nodes']}")
-    print("operators: " + ", ".join(f"{k}={v}" for k, v in after["operators"].items()))
+    print("optimized ONNX SHA256: {}".format(optimized_sha))
+    print("nodes: {}".format(after["nodes"]))
+    print(
+        "operators: "
+        + ", ".join("{}={}".format(k, v) for k, v in after["operators"].items())
+    )
 
     print("")
     print("[KL720 IP evaluation]")
@@ -199,14 +251,14 @@ def main() -> int:
     old_cwd = Path.cwd()
     started = time.time()
     try:
-        os.chdir(output_dir)
+        os.chdir(str(output_dir))
         evaluation = km.evaluate()
     finally:
-        os.chdir(old_cwd)
+        os.chdir(str(old_cwd))
     evaluation_text = str(evaluation)
     print(evaluation_text)
 
-    artifacts: dict[str, str | None] = {}
+    artifacts = {}
     for filename in (
         "model_fx_report.json",
         "model_fx_report.html",
@@ -216,10 +268,11 @@ def main() -> int:
     ):
         artifacts[filename] = harvest(filename, output_dir, started)
 
-    status_corpus = "\n".join(
-        [evaluation_text]
-        + [read_text_if_present(Path(path)) for path in artifacts.values() if path]
-    ).lower()
+    status_parts = [evaluation_text]
+    for path in artifacts.values():
+        if path:
+            status_parts.append(read_text_if_present(Path(path)))
+    status_corpus = "\n".join(status_parts).lower()
     failure_markers = (
         "hw not support",
         "hardware not support",
@@ -244,7 +297,8 @@ def main() -> int:
         "model_id": args.model_id,
         "model_version": args.model_version,
         "toolchain_version": version,
-        "kneronnxopt_version": getattr(kneronnxopt, "__version__", None),
+        "optimizer_backend": optimizer_backend,
+        "optimizer_version": optimizer_version,
         "before": before,
         "after": after,
         "evaluation": evaluation_text,
@@ -254,6 +308,10 @@ def main() -> int:
         "bie_generated": False,
         "nef_compiled": False,
         "final_holdout_read": False,
+        "compatibility_recovery": (
+            "Python 3.7 syntax + historical ktc.onnx_optimizer adapter; "
+            "no model/preprocessing/endpoint/gate change"
+        ),
         "authorized_next_stage": (
             "FROZEN_DEVELOPMENT_ONLY_PTQ"
             if hardware_supported
@@ -264,16 +322,21 @@ def main() -> int:
 
     print("")
     print("KNERON KL720 FLOATING-POINT GATE COMPLETE: YES")
-    print(f"KL720 HW SUPPORT: {'YES' if hardware_supported else 'NO'}")
-    print(f"optimized ONNX: {optimized_path}")
-    print(f"optimized ONNX SHA256: {optimized_sha}")
-    print(f"report: {report_path}")
-    print(f"report SHA256: {sha256_file(report_path)}")
+    print("KL720 HW SUPPORT: {}".format("YES" if hardware_supported else "NO"))
+    print("optimized ONNX: {}".format(optimized_path))
+    print("optimized ONNX SHA256: {}".format(optimized_sha))
+    print("report: {}".format(report_path))
+    print("report SHA256: {}".format(sha256_file(report_path)))
     print("PTQ performed: NO")
     print("final holdout read: NO")
     if not hardware_supported:
-        raise SystemExit("KL720 floating-point IP-support gate did not pass; do not quantize yet.")
-    print("NEXT GATE: quantize this exact optimized ONNX using the frozen 288-development-nucleus calibration panel.")
+        raise SystemExit(
+            "KL720 floating-point IP-support gate did not pass; do not quantize yet."
+        )
+    print(
+        "NEXT GATE: quantize this exact optimized ONNX using the frozen "
+        "288-development-nucleus calibration panel."
+    )
     return 0
 
 
