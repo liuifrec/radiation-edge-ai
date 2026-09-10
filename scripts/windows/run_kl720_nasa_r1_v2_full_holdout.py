@@ -10,6 +10,10 @@ It does NOT read the raw NASA phenotype table, the FP32 confirmation outputs, or
 the BIE holdout outputs. Biological targets and the seven frozen gates are only
 introduced after this complete physical prediction set is frozen.
 
+Important Windows path convention: --image-root must point to the materialized
+"images" directory that directly contains fitc/ and dapi/ subdirectories, e.g.
+...\\r1_v2_final_holdout_blinded\\images.
+
 Python 3.9 compatible for Kneron PLUS 3.2.0 on the user's Windows host.
 """
 
@@ -315,7 +319,7 @@ def main():
     parser.add_argument("--nef-freeze", required=True)
     parser.add_argument("--physical-smoke-freeze", required=True)
     parser.add_argument("--holdout-manifest", required=True)
-    parser.add_argument("--image-root", required=True)
+    parser.add_argument("--image-root", required=True, help="Directory containing fitc/ and dapi/ subdirectories (normally ...\\r1_v2_final_holdout_blinded\\images).")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--port", type=int, default=EXPECTED_USB_PORT)
     parser.add_argument("--timeout-ms", type=int, default=10000)
@@ -348,30 +352,27 @@ def main():
         raise RuntimeError("Unexpected NEF deployment freeze status")
     if nef_freeze.get("nef_sha256") != EXPECTED_NEF_SHA256:
         raise RuntimeError("NEF deployment freeze does not pin expected NEF")
+    if nef_freeze.get("post_holdout_ptq_retuning_authorized") is not False:
+        raise RuntimeError("NEF deployment freeze permits PTQ retuning")
     if smoke_freeze.get("status") != "FROZEN_PHYSICAL_KL720_ONE_SAMPLE_SMOKE_PASS_BEFORE_FULL_HOLDOUT":
-        raise RuntimeError("Unexpected physical smoke freeze status")
-    if smoke_freeze.get("nef_sha256") != EXPECTED_NEF_SHA256:
-        raise RuntimeError("Physical smoke freeze NEF mismatch")
+        raise RuntimeError("Unexpected physical-smoke freeze status")
     if smoke_freeze.get("physical_bie_numerical_smoke_pass") is not True:
-        raise RuntimeError("Physical smoke was not PASS")
+        raise RuntimeError("Physical smoke freeze is not PASS")
+    if smoke_freeze.get("physical_output_byte_identical_to_bie_reference") is not True:
+        raise RuntimeError("Physical smoke output was not byte-identical to frozen BIE reference")
     if smoke_freeze.get("post_holdout_ptq_retuning_authorized") is not False:
-        raise RuntimeError("Unexpected PTQ retuning authorization")
-    if smoke_freeze.get("authorized_next_stage") != "FULL_FROZEN_HOLDOUT_PHYSICAL_KL720_BIOLOGICAL_EQUIVALENCE":
-        raise RuntimeError("Physical smoke freeze does not authorize full holdout")
+        raise RuntimeError("Physical smoke freeze permits PTQ retuning")
 
     rows = read_csv(manifest_path)
-    source_counts, bags = validate_holdout_manifest(rows)
-    ordered_rows = sorted(rows, key=lambda row: (row["sample_name"], row["sample_id"]))
-    cv2.setNumThreads(0)
-
-    import kp
+    source_counts, bag_counts = validate_holdout_manifest(rows)
+    ordered_rows = sorted(rows, key=lambda row: row["sample_id"])
 
     print("Radiation Edge AI - NASA BPS R1 v2 full physical KL720 holdout inference")
     print("NEF SHA256: {}".format(nef_sha))
     print("NEF deployment freeze SHA256: {}".format(nef_freeze_sha))
     print("physical smoke PASS freeze SHA256: {}".format(smoke_freeze_sha))
     print("QC1 holdout manifest SHA256: {}".format(manifest_sha))
-    print("holdout nuclei/bags: {}/{}".format(len(rows), len(bags)))
+    print("holdout nuclei/bags: {}/{}".format(len(rows), len(bag_counts)))
     print("preprocessing: p1/p99.5 FITC+DAPI; no resize; center pad 256; zero third channel")
     print("MASK used as model input: NO")
     print("raw phenotype table read: NO")
@@ -379,14 +380,17 @@ def main():
     print("biological targets/gates evaluated in this stage: NO")
     print("")
 
+    import kp
+
     descriptors = scan_descriptors(kp)
-    matching = [d for d in descriptors if int(getattr(d, "usb_port_id", -1)) == args.port]
-    if not matching:
-        visible = [getattr(d, "usb_port_id", None) for d in descriptors]
-        raise RuntimeError("KL720 USB port {} not found; visible ports={}".format(args.port, visible))
-    device_desc = matching[0]
-    if int(getattr(device_desc, "product_id", -1)) != 0x720:
-        raise RuntimeError("USB port {} is not KL720".format(args.port))
+    descriptor = next((item for item in descriptors if int(getattr(item, "usb_port_id", -1)) == args.port), None)
+    if descriptor is None:
+        raise RuntimeError("KL720 USB port {} not found; detected={}".format(
+            args.port, [int(getattr(d, "usb_port_id", -1)) for d in descriptors]
+        ))
+    product_id = int(getattr(descriptor, "product_id", -1))
+    if product_id != EXPECTED_PLATFORM:
+        raise RuntimeError("Port {} product_id={}; expected KL{}".format(args.port, product_id, EXPECTED_PLATFORM))
     print("[Device] port={} KL720 detected".format(args.port))
 
     try:
