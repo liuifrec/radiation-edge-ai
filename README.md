@@ -100,6 +100,28 @@ Large microscopy datasets, proprietary material, model binaries, and KL720 build
 - **v0.4 — Biological fidelity:** endpoint-level agreement, equivalence, and compression-fidelity analyses.
 - **v0.5 — Reproducible manuscript:** regenerate publication figures/tables from versioned benchmark outputs.
 
+## Validated NASA BPS 53BP1 milestone
+
+The NASA BPS OSD-366 R1 v2 track has completed end-to-end deployment validation from the frozen FP32 model through ONNX, development-only INT8 PTQ, BIE, NEF, and the physical KL720.
+
+The final source-held-out physical validation used **2,058 nuclei -> 22 sample/plate-well bags -> 11 matched radiation contrasts**. Physical predictions were generated and frozen outcome-blind before biological reference outputs were read.
+
+Observed physical KL720 result:
+
+- bag MAE / RMSE / Pearson / Spearman: `0.7922 / 0.8893 / 0.9501 / 0.5729`;
+- matched-delta MAE / Pearson / Spearman: `0.9405 / 0.9635 / 0.8182`;
+- direction agreement: `10/11` overall, `4/4` at 4 h, `6/7` at 24+48 h;
+- source direction: BALBCF2 `4/5`, C57BLF2 `3/3`, C57BLF3 `3/3`;
+- peak-time recovery: `3/3`;
+- **all seven original predeclared biological deployment-equivalence gates passed**;
+- the exact FP32 direction/peak signature was reproduced.
+
+Mean physical KL720 send+receive time over the 2,058-nucleus run was `3.676 ms` per nucleus (median `3.636 ms`, p95 `4.269 ms`), reported as descriptive device timing rather than a complete system/energy benchmark.
+
+The scientific claim is **biological deployment-equivalence under the predeclared gates**, not strict numerical equivalence. Per-nucleus output remains a latent continuous 53BP1 burden score rather than an individually supervised focus count. The held-out sources are all female, so this is not a sex-effect analysis, and it must not be presented as broad 15-strain generalization.
+
+Full provenance, hashes, protocol-deviation documentation, claim boundaries, and the terminal freeze are recorded in `docs/NASA_BPS_R1_V2_KL720_VALIDATION_RECORD.md`.
+
 ## Publication strategy
 
 The project is designed first as a **general biological-methods contribution**, with biological fidelity under model compression as the central methodological advance rather than a hardware demonstration.
@@ -109,7 +131,7 @@ The project is designed first as a **general biological-methods contribution**, 
 
 ## Status
 
-Early research scaffold. The KL720 platform itself has already been validated separately for generic image inference; assay-specific reference baselines and KL720 models are now being developed in this repository.
+The NASA BPS 53BP1 R1 v2 track has reached a frozen physical-KL720 validation milestone and is ready for release-candidate packaging. DNA-fiber and micronucleus tracks remain under development.
 
 ## License
 
