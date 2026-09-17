@@ -127,3 +127,71 @@ def test_non_npy_input_is_rejected_before_worker(tmp_path: Path) -> None:
     plan_path = _make_plan(tmp_path, suffix=".bin")
     with pytest.raises(ControlPlaneError, match="preprocessed .npy"):
         execute_run_plan(plan_path, onnx_python=Path(sys.executable))
+
+def test_run_record_plan_fingerprint_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan_path = _make_plan(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _fake_worker)
+
+    record_path = execute_run_plan(
+        plan_path,
+        onnx_python=Path(sys.executable),
+    )
+
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+
+    assert record["assay_id"] == "nasa-53bp1-r1-v2"
+    assert record["started_utc"]
+    assert record["ended_utc"]
+    assert record["completed_utc"] == record["ended_utc"]
+
+    report = verify_run_record(record_path)
+    assert report["plan_fingerprint_ok"] is True
+    assert report["assay_id_ok"] is True
+    assert report["timestamps_ok"] is True
+
+    record["plan"]["plan_fingerprint_sha256"] = "0" * 64
+    record_path.write_text(json.dumps(record), encoding="utf-8")
+
+    tampered = verify_run_record(record_path)
+    assert tampered["plan_fingerprint_ok"] is False
+    assert tampered["ok"] is False
+
+
+def test_legacy_v1_run_record_remains_verifiable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan_path = _make_plan(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _fake_worker)
+
+    record_path = execute_run_plan(
+        plan_path,
+        onnx_python=Path(sys.executable),
+    )
+
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+
+    assert record["schema_version"] == 2
+    assert record["assay_id"] == "nasa-53bp1-r1-v2"
+    assert record["started_utc"]
+    assert record["ended_utc"]
+
+    # Reconstruct the metadata shape written by v0.1b / early v0.1c.
+    record["schema_version"] = 1
+    record.pop("assay_id")
+    record.pop("started_utc")
+    record.pop("ended_utc")
+
+    record_path.write_text(
+        json.dumps(record),
+        encoding="utf-8",
+    )
+
+    report = verify_run_record(record_path)
+
+    assert report["schema_version"] == 1
+    assert report["plan_fingerprint_ok"] is True
+    assert report["assay_id_ok"] is True
+    assert report["timestamps_ok"] is True
+    assert report["ok"] is True
