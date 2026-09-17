@@ -112,6 +112,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("plan_path", type=Path)
     run.add_argument("--onnx-python", type=Path)
+    run.add_argument("--kl720-python", type=Path)
+    run.add_argument("--kl720-port", type=int)
+    run.add_argument("--kl720-timeout-ms", type=int, default=10000)
 
     verify = subparsers.add_parser(
         "verify",
@@ -156,6 +159,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
             record_path = execute_run_plan(
                 args.plan_path,
                 onnx_python=args.onnx_python,
+                kl720_python=args.kl720_python,
+                kl720_port=args.kl720_port,
+                kl720_timeout_ms=args.kl720_timeout_ms,
             )
             print(record_path)
             return 0
