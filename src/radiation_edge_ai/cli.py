@@ -15,8 +15,8 @@ from radiation_edge_ai.control import (
     create_run_plan,
     get_assay,
     list_assays,
-    verify_run_plan,
 )
+from radiation_edge_ai.execution import execute_run_plan, verify_target
 
 
 def _dump_json(value: object) -> None:
@@ -106,6 +106,13 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--config", type=Path)
     plan.add_argument("--output-dir", required=True, type=Path)
 
+    run = subparsers.add_parser(
+        "run",
+        help="execute a frozen run plan with its approved backend",
+    )
+    run.add_argument("plan_path", type=Path)
+    run.add_argument("--onnx-python", type=Path)
+
     verify = subparsers.add_parser(
         "verify",
         help="verify a run-plan fingerprint and artifacts",
@@ -145,20 +152,37 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
             print(plan_path)
             return 0
 
+        if args.command == "run":
+            record_path = execute_run_plan(
+                args.plan_path,
+                onnx_python=args.onnx_python,
+            )
+            print(record_path)
+            return 0
+
         if args.command == "verify":
-            report = verify_run_plan(
+            report = verify_target(
                 args.plan_path,
                 check_artifacts=not args.no_artifacts,
             )
             if args.json:
                 _dump_json(report)
             else:
+                print(f"kind: {report['kind']}")
                 print(f"run_id: {report['run_id']}")
-                status = "PASS" if report["fingerprint_ok"] else "FAIL"
-                print(f"fingerprint: {status}")
-                if report["artifact_check_performed"]:
-                    status = "PASS" if report["artifacts_ok"] else "FAIL"
-                    print(f"artifacts: {status}")
+                if report["kind"] == "run_plan":
+                    status = "PASS" if report["fingerprint_ok"] else "FAIL"
+                    print(f"fingerprint: {status}")
+                    if report["artifact_check_performed"]:
+                        status = "PASS" if report["artifacts_ok"] else "FAIL"
+                        print(f"artifacts: {status}")
+                else:
+                    print(f"plan: {'PASS' if report['plan_ok'] else 'FAIL'}")
+                    print(f"raw output: {'PASS' if report['raw_output_ok'] else 'FAIL'}")
+                    print(
+                        "worker manifest: "
+                        f"{'PASS' if report['worker_manifest_ok'] else 'FAIL'}"
+                    )
                 print(f"verification: {'PASS' if report['ok'] else 'FAIL'}")
             return 0 if report["ok"] else 3
 
