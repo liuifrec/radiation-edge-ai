@@ -714,6 +714,14 @@ def verify_target(path: Path, *, check_artifacts: bool = True) -> dict[str, obje
     if value.get("record_type") == "run_record":
         return verify_run_record(target, check_source_artifacts=check_artifacts)
 
+    if value.get("report_type") == "nasa_endpoint_report":
+        from radiation_edge_ai.nasa_endpoint import verify_nasa_endpoint_report
+
+        return verify_nasa_endpoint_report(
+            target,
+            check_source_artifact=check_artifacts,
+        )
+
     report = dict(verify_run_plan(target, check_artifacts=check_artifacts))
     report["kind"] = "run_plan"
     return report
