@@ -17,6 +17,13 @@ from radiation_edge_ai.control import (
     list_assays,
 )
 from radiation_edge_ai.execution import execute_run_plan, verify_target
+from radiation_edge_ai.measurement import (
+    ASSAY_ID as MEASUREMENT_ASSAY_ID,
+)
+from radiation_edge_ai.measurement import (
+    create_measurement_plan,
+    execute_measurement_plan,
+)
 from radiation_edge_ai.nasa_endpoint import (
     ASSAY_ID as NASA_ENDPOINT_ASSAY_ID,
 )
@@ -122,6 +129,21 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--kl720-port", type=int)
     run.add_argument("--kl720-timeout-ms", type=int, default=10000)
 
+    measure_plan = subparsers.add_parser(
+        "measure-plan",
+        help="create a content-addressed assay measurement plan",
+    )
+    measure_plan.add_argument("--assay", required=True)
+    measure_plan.add_argument("--predictions", required=True, type=Path)
+    measure_plan.add_argument("--burden-column", required=True)
+    measure_plan.add_argument("--output-dir", required=True, type=Path)
+
+    measure = subparsers.add_parser(
+        "measure",
+        help="execute a verified assay measurement plan",
+    )
+    measure.add_argument("plan_path", type=Path)
+
     aggregate = subparsers.add_parser(
         "aggregate",
         help="reconstruct an approved assay endpoint from frozen predictions",
@@ -133,7 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify = subparsers.add_parser(
         "verify",
-        help="verify a run plan, run record, or endpoint report",
+        help="verify a run plan, run record, measurement plan, or endpoint report",
     )
     verify.add_argument("plan_path", type=Path)
     verify.add_argument("--no-artifacts", action="store_true")
@@ -181,6 +203,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
             print(record_path)
             return 0
 
+        if args.command == "measure-plan":
+            if args.assay != MEASUREMENT_ASSAY_ID:
+                raise ControlPlaneError(
+                    "Measurement planning is not implemented for assay "
+                    f"{args.assay!r}"
+                )
+            plan_path = create_measurement_plan(
+                predictions_path=args.predictions,
+                burden_column=args.burden_column,
+                output_dir=args.output_dir,
+            )
+            print(plan_path)
+            return 0
+
+        if args.command == "measure":
+            record_path = execute_measurement_plan(
+                args.plan_path,
+            )
+            print(record_path)
+            return 0
+
         if args.command == "aggregate":
             if args.assay != NASA_ENDPOINT_ASSAY_ID:
                 raise ControlPlaneError(
@@ -206,6 +249,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                 print(f"kind: {report['kind']}")
                 if report["kind"] in {"run_plan", "run_record"}:
                     print(f"run_id: {report['run_id']}")
+                elif report["kind"] in {
+                    "measurement_plan",
+                    "measurement_record",
+                }:
+                    print(f"measurement_id: {report['measurement_id']}")
                 elif report["kind"] == "nasa_endpoint_report":
                     print(f"aggregation_id: {report['aggregation_id']}")
                 if report["kind"] == "run_plan":
@@ -220,6 +268,41 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                     print(
                         "worker manifest: "
                         f"{'PASS' if report['worker_manifest_ok'] else 'FAIL'}"
+                    )
+                elif report["kind"] == "measurement_plan":
+                    print(
+                        "fingerprint: "
+                        f"{'PASS' if report['fingerprint_ok'] else 'FAIL'}"
+                    )
+                    if report["source_artifact_check_performed"]:
+                        print(
+                            "source predictions: "
+                            f"{'PASS' if report['source_predictions_ok'] else 'FAIL'}"
+                        )
+                elif report["kind"] == "measurement_record":
+                    print(
+                        "fingerprint: "
+                        f"{'PASS' if report['fingerprint_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "measurement plan: "
+                        f"{'PASS' if report['plan_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "endpoint report: "
+                        f"{'PASS' if report['endpoint_report_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "sample aggregates: "
+                        f"{'PASS' if report['sample_aggregates_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "cross-artifact bindings: "
+                        f"{'PASS' if report['cross_artifact_bindings_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        f"measurement counts: {report['n_nuclei']} nuclei / "
+                        f"{report['n_samples']} samples"
                     )
                 elif report["kind"] == "nasa_endpoint_report":
                     print(
