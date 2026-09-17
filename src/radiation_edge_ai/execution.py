@@ -714,6 +714,22 @@ def verify_target(path: Path, *, check_artifacts: bool = True) -> dict[str, obje
     if value.get("record_type") == "run_record":
         return verify_run_record(target, check_source_artifacts=check_artifacts)
 
+    if value.get("record_type") == "measurement_plan":
+        from radiation_edge_ai.measurement import verify_measurement_plan
+
+        return verify_measurement_plan(
+            target,
+            check_source_artifact=check_artifacts,
+        )
+
+    if value.get("record_type") == "measurement_record":
+        from radiation_edge_ai.measurement import verify_measurement_record
+
+        return verify_measurement_record(
+            target,
+            check_artifacts=check_artifacts,
+        )
+
     if value.get("report_type") == "nasa_endpoint_report":
         from radiation_edge_ai.nasa_endpoint import verify_nasa_endpoint_report
 
