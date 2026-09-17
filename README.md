@@ -113,12 +113,12 @@ Observed physical KL720 result:
 - direction agreement: `10/11` overall, `4/4` at 4 h, `6/7` at 24+48 h;
 - source direction: BALBCF2 `4/5`, C57BLF2 `3/3`, C57BLF3 `3/3`;
 - peak-time recovery: `3/3`;
-- **all seven original predeclared biological deployment-equivalence gates passed**;
-- the exact FP32 direction/peak signature was reproduced.
+- **all seven original predeclared biological-fidelity acceptance criteria passed**;
+- the physical deployment preserved the per-contrast agreement/failure pattern against the NASA aggregate reference and recovered all three reference peak times.
 
 Mean physical KL720 send+receive time over the 2,058-nucleus run was `3.676 ms` per nucleus (median `3.636 ms`, p95 `4.269 ms`), reported as descriptive device timing rather than a complete system/energy benchmark.
 
-The scientific claim is **biological deployment-equivalence under the predeclared gates**, not strict numerical equivalence. Per-nucleus output remains a latent continuous 53BP1 burden score rather than an individually supervised focus count. The held-out sources are all female, so this is not a sex-effect analysis, and it must not be presented as broad 15-strain generalization.
+The scientific claim is **passing the original predeclared biological-fidelity acceptance criteria**, not strict numerical or formal statistical equivalence. Per-nucleus output remains a latent continuous 53BP1 burden score rather than an individually supervised focus count. The held-out sources are all female, so this is not a sex-effect analysis, and it must not be presented as broad 15-strain generalization.
 
 Full provenance, hashes, protocol-deviation documentation, claim boundaries, and the terminal freeze are recorded in `docs/NASA_BPS_R1_V2_KL720_VALIDATION_RECORD.md`.
 
@@ -126,12 +126,11 @@ Full provenance, hashes, protocol-deviation documentation, claim boundaries, and
 
 The project is designed first as a **general biological-methods contribution**, with biological fidelity under model compression as the central methodological advance rather than a hardware demonstration.
 
-- **Primary target:** Cell Reports Methods
-- **Fallback target:** Radiation Research
+Publication venue will be chosen after the final validation scope is frozen. A public-data/software-only package is being developed as a reproducible methods/software contribution; sufficiently strong independent radiation-biology validation could support reassessment for a field-specific methods venue.
 
 ## Status
 
-The NASA BPS 53BP1 R1 v2 track has reached a frozen physical-KL720 validation milestone and is ready for release-candidate packaging. DNA-fiber and micronucleus tracks remain under development.
+The NASA BPS 53BP1 R1 v2 track has a frozen physical-KL720 validation record. DNA-fiber has completed physical KL720 deployment characterization and post-hoc sensitivity auditing. Micronucleus remains a possible future assay rather than a prerequisite for the current two-assay offline demonstrator.
 
 ## License
 
