@@ -17,6 +17,12 @@ from radiation_edge_ai.control import (
     list_assays,
 )
 from radiation_edge_ai.execution import execute_run_plan, verify_target
+from radiation_edge_ai.nasa_endpoint import (
+    ASSAY_ID as NASA_ENDPOINT_ASSAY_ID,
+)
+from radiation_edge_ai.nasa_endpoint import (
+    create_nasa_endpoint_report,
+)
 
 
 def _dump_json(value: object) -> None:
@@ -116,9 +122,18 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--kl720-port", type=int)
     run.add_argument("--kl720-timeout-ms", type=int, default=10000)
 
+    aggregate = subparsers.add_parser(
+        "aggregate",
+        help="reconstruct an approved assay endpoint from frozen predictions",
+    )
+    aggregate.add_argument("--assay", required=True)
+    aggregate.add_argument("--predictions", required=True, type=Path)
+    aggregate.add_argument("--burden-column", required=True)
+    aggregate.add_argument("--output-dir", required=True, type=Path)
+
     verify = subparsers.add_parser(
         "verify",
-        help="verify a run-plan fingerprint and artifacts",
+        help="verify a run plan, run record, or endpoint report",
     )
     verify.add_argument("plan_path", type=Path)
     verify.add_argument("--no-artifacts", action="store_true")
@@ -166,6 +181,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
             print(record_path)
             return 0
 
+        if args.command == "aggregate":
+            if args.assay != NASA_ENDPOINT_ASSAY_ID:
+                raise ControlPlaneError(
+                    "Endpoint aggregation is not implemented for assay "
+                    f"{args.assay!r}"
+                )
+            report_path = create_nasa_endpoint_report(
+                predictions_path=args.predictions,
+                burden_column=args.burden_column,
+                output_dir=args.output_dir,
+            )
+            print(report_path)
+            return 0
+
         if args.command == "verify":
             report = verify_target(
                 args.plan_path,
@@ -175,19 +204,44 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                 _dump_json(report)
             else:
                 print(f"kind: {report['kind']}")
-                print(f"run_id: {report['run_id']}")
+                if report["kind"] in {"run_plan", "run_record"}:
+                    print(f"run_id: {report['run_id']}")
+                elif report["kind"] == "nasa_endpoint_report":
+                    print(f"aggregation_id: {report['aggregation_id']}")
                 if report["kind"] == "run_plan":
                     status = "PASS" if report["fingerprint_ok"] else "FAIL"
                     print(f"fingerprint: {status}")
                     if report["artifact_check_performed"]:
                         status = "PASS" if report["artifacts_ok"] else "FAIL"
                         print(f"artifacts: {status}")
-                else:
+                elif report["kind"] == "run_record":
                     print(f"plan: {'PASS' if report['plan_ok'] else 'FAIL'}")
                     print(f"raw output: {'PASS' if report['raw_output_ok'] else 'FAIL'}")
                     print(
                         "worker manifest: "
                         f"{'PASS' if report['worker_manifest_ok'] else 'FAIL'}"
+                    )
+                elif report["kind"] == "nasa_endpoint_report":
+                    print(
+                        "fingerprint: "
+                        f"{'PASS' if report['fingerprint_ok'] else 'FAIL'}"
+                    )
+                    if report["source_artifact_check_performed"]:
+                        print(
+                            "source predictions: "
+                            f"{'PASS' if report['source_predictions_ok'] else 'FAIL'}"
+                        )
+                    print(
+                        "sample aggregates: "
+                        f"{'PASS' if report['sample_aggregates_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        f"endpoint counts: {report['n_nuclei']} nuclei / "
+                        f"{report['n_samples']} samples"
+                    )
+                else:
+                    raise ControlPlaneError(
+                        f"Unknown verification report kind: {report['kind']!r}"
                     )
                 print(f"verification: {'PASS' if report['ok'] else 'FAIL'}")
             return 0 if report["ok"] else 3
