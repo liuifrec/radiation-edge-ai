@@ -21,6 +21,7 @@ dev = [
 ]
 
 [project.scripts]
+radedge = "radiation_edge_ai.cli:main"
 radedge-kl720-check = "radiation_edge_ai.hardware.kl720_check:main"
 
 [tool.hatch.build.targets.wheel]
