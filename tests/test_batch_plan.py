@@ -11,6 +11,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from radiation_edge_ai.application import (
+    execute_assay_manifest,
+)
 from radiation_edge_ai.batch import (
     create_batch_plan,
     execute_batch_plan,
@@ -1067,3 +1070,203 @@ def test_transaction_scope_preserves_scientific_boundary(
     assert scope["biological_reference_read"] is False
     assert scope["biological_acceptance_evaluated"] is False
     assert scope["hardware_access_performed"] is False
+
+
+
+def test_execute_assay_manifest_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _write_measurement_valid_manifest(
+        tmp_path / "source"
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_onnx_worker,
+    )
+
+    summary = execute_assay_manifest(
+        manifest,
+        output_dir=tmp_path / "application",
+        onnx_python=Path(sys.executable),
+    )
+
+    assert summary["kind"] == "assay_run_summary"
+    assert summary["status"] == "complete"
+    assert summary["verification"] == "PASS"
+    assert summary["assay_id"] == "nasa-53bp1-r1-v2"
+
+    counts = summary["counts"]
+
+    assert counts == {
+        "n_items": 2,
+        "n_prediction_rows": 2,
+        "n_nuclei": 2,
+        "n_samples": 1,
+    }
+
+    endpoints = summary["sample_endpoints"]
+
+    assert len(endpoints) == 1
+    assert endpoints[0]["sample_name"] == "SAMPLE_A"
+    assert endpoints[0]["n_nuclei"] == 2
+    assert endpoints[0]["mean_latent_burden"] == pytest.approx(
+        1.0
+    )
+
+    scope = summary["scientific_scope"]
+
+    assert scope[
+        "per_nucleus_focus_count_interpretation"
+    ] is False
+    assert scope["biological_reference_read"] is False
+    assert scope[
+        "biological_acceptance_evaluated"
+    ] is False
+    assert scope["hardware_access_performed"] is False
+
+
+def test_assay_manifest_execution_is_idempotent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _write_measurement_valid_manifest(
+        tmp_path / "source"
+    )
+
+    calls = {"count": 0}
+
+    def counted(
+        command: list[str],
+        **kwargs: object,
+    ) -> SimpleNamespace:
+        calls["count"] += 1
+        return _fake_onnx_worker(
+            command,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        counted,
+    )
+
+    first = execute_assay_manifest(
+        manifest,
+        output_dir=tmp_path / "application",
+        onnx_python=Path(sys.executable),
+    )
+
+    second = execute_assay_manifest(
+        manifest,
+        output_dir=tmp_path / "application",
+        onnx_python=Path(sys.executable),
+    )
+
+    assert second == first
+
+    # Two synthetic nuclei execute only once.
+    assert calls["count"] == 2
+
+
+def test_cli_assay_run_human_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from radiation_edge_ai.cli import main
+
+    manifest = _write_measurement_valid_manifest(
+        tmp_path / "source"
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_onnx_worker,
+    )
+
+    status = main(
+        [
+            "assay-run",
+            "--manifest",
+            str(manifest),
+            "--output-dir",
+            str(tmp_path / "application"),
+            "--onnx-python",
+            sys.executable,
+        ]
+    )
+
+    assert status == 0
+
+    output = capsys.readouterr().out
+
+    assert "Radiation Edge AI - assay run" in output
+    assert "transaction: t1-" in output
+    assert (
+        "counts: 2 items / 2 predictions / "
+        "2 nuclei / 1 samples"
+        in output
+    )
+    assert (
+        "SAMPLE_A: n=2, mean_latent_burden=1.0"
+        in output
+    )
+    assert (
+        "per-nucleus focus-count interpretation: False"
+        in output
+    )
+    assert "biological reference read: False" in output
+    assert (
+        "biological acceptance evaluated: False"
+        in output
+    )
+    assert "hardware access performed: False" in output
+    assert "verification: PASS" in output
+
+
+def test_cli_assay_run_json_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from radiation_edge_ai.cli import main
+
+    manifest = _write_measurement_valid_manifest(
+        tmp_path / "source"
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_onnx_worker,
+    )
+
+    status = main(
+        [
+            "assay-run",
+            "--manifest",
+            str(manifest),
+            "--output-dir",
+            str(tmp_path / "application"),
+            "--onnx-python",
+            sys.executable,
+            "--json",
+        ]
+    )
+
+    assert status == 0
+
+    value = json.loads(
+        capsys.readouterr().out
+    )
+
+    assert value["kind"] == "assay_run_summary"
+    assert value["verification"] == "PASS"
+    assert value["counts"]["n_nuclei"] == 2
+    assert value["counts"]["n_samples"] == 1
+    assert len(value["sample_endpoints"]) == 1
