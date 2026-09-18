@@ -730,6 +730,16 @@ def verify_target(path: Path, *, check_artifacts: bool = True) -> dict[str, obje
             check_artifacts=check_artifacts,
         )
 
+    if value.get("record_type") == "batch_measurement_transaction":
+        from radiation_edge_ai.transaction import (
+            verify_batch_measurement_transaction,
+        )
+
+        return verify_batch_measurement_transaction(
+            target,
+            check_artifacts=check_artifacts,
+        )
+
     if value.get("record_type") == "measurement_plan":
         from radiation_edge_ai.measurement import verify_measurement_plan
 
