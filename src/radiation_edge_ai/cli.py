@@ -9,6 +9,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
 
+from radiation_edge_ai.batch import (
+    create_batch_plan,
+    execute_batch_plan,
+)
 from radiation_edge_ai.control import (
     ControlPlaneError,
     collect_doctor_report,
@@ -29,6 +33,9 @@ from radiation_edge_ai.nasa_endpoint import (
 )
 from radiation_edge_ai.nasa_endpoint import (
     create_nasa_endpoint_report,
+)
+from radiation_edge_ai.nasa_predictions import (
+    create_nasa_batch_prediction_report,
 )
 
 
@@ -129,6 +136,31 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--kl720-port", type=int)
     run.add_argument("--kl720-timeout-ms", type=int, default=10000)
 
+    batch_plan = subparsers.add_parser(
+        "batch-plan",
+        help="create a content-addressed batch inference plan",
+    )
+    batch_plan.add_argument("--manifest", required=True, type=Path)
+    batch_plan.add_argument("--output-dir", required=True, type=Path)
+
+    batch_run = subparsers.add_parser(
+        "batch-run",
+        help="execute a verified CPU-ONNX batch plan",
+    )
+    batch_run.add_argument("plan_path", type=Path)
+    batch_run.add_argument("--onnx-python", type=Path)
+
+    batch_predictions = subparsers.add_parser(
+        "batch-predictions",
+        help="project a verified batch record into a NASA prediction table",
+    )
+    batch_predictions.add_argument("record_path", type=Path)
+    batch_predictions.add_argument(
+        "--output-dir",
+        required=True,
+        type=Path,
+    )
+
     measure_plan = subparsers.add_parser(
         "measure-plan",
         help="create a content-addressed assay measurement plan",
@@ -155,7 +187,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify = subparsers.add_parser(
         "verify",
-        help="verify a run plan, run record, measurement plan, or endpoint report",
+        help=(
+            "verify a run, batch, measurement, or endpoint control-plane artifact"
+        ),
     )
     verify.add_argument("plan_path", type=Path)
     verify.add_argument("--no-artifacts", action="store_true")
@@ -201,6 +235,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                 kl720_timeout_ms=args.kl720_timeout_ms,
             )
             print(record_path)
+            return 0
+
+        if args.command == "batch-plan":
+            plan_path = create_batch_plan(
+                manifest_path=args.manifest,
+                output_dir=args.output_dir,
+            )
+            print(plan_path)
+            return 0
+
+        if args.command == "batch-run":
+            record_path = execute_batch_plan(
+                args.plan_path,
+                onnx_python=args.onnx_python,
+            )
+            print(record_path)
+            return 0
+
+        if args.command == "batch-predictions":
+            report_path = create_nasa_batch_prediction_report(
+                batch_record_path=args.record_path,
+                output_dir=args.output_dir,
+            )
+            print(report_path)
             return 0
 
         if args.command == "measure-plan":
@@ -250,6 +308,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                 if report["kind"] in {"run_plan", "run_record"}:
                     print(f"run_id: {report['run_id']}")
                 elif report["kind"] in {
+                    "batch_plan",
+                    "batch_record",
+                }:
+                    print(f"batch_id: {report['batch_id']}")
+                elif report["kind"] == "nasa_batch_prediction_report":
+                    print(f"prediction_id: {report['prediction_id']}")
+                elif report["kind"] in {
                     "measurement_plan",
                     "measurement_record",
                 }:
@@ -268,6 +333,72 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                     print(
                         "worker manifest: "
                         f"{'PASS' if report['worker_manifest_ok'] else 'FAIL'}"
+                    )
+                elif report["kind"] == "batch_plan":
+                    print(
+                        "fingerprint: "
+                        f"{'PASS' if report['fingerprint_ok'] else 'FAIL'}"
+                    )
+                    if report["artifact_check_performed"]:
+                        print(
+                            "source manifest: "
+                            f"{'PASS' if report['source_manifest_ok'] else 'FAIL'}"
+                        )
+                        print(
+                            "model: "
+                            f"{'PASS' if report['model_ok'] else 'FAIL'}"
+                        )
+                        print(
+                            "items: "
+                            f"{'PASS' if report['items_ok'] else 'FAIL'}"
+                        )
+                        print(
+                            "manifest semantics: "
+                            f"{'PASS' if report['manifest_semantics_ok'] else 'FAIL'}"
+                        )
+                    print(f"batch items: {report['n_items']}")
+                elif report["kind"] == "batch_record":
+                    print(
+                        "fingerprint: "
+                        f"{'PASS' if report['fingerprint_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "batch plan: "
+                        f"{'PASS' if report['batch_plan_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "child runs: "
+                        f"{'PASS' if report['runs_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "cross-artifact bindings: "
+                        f"{'PASS' if report['cross_artifact_bindings_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        f"batch runs: {report['n_completed_runs']} / "
+                        f"{report['n_items']}"
+                    )
+                elif report["kind"] == "nasa_batch_prediction_report":
+                    print(
+                        "fingerprint: "
+                        f"{'PASS' if report['fingerprint_ok'] else 'FAIL'}"
+                    )
+                    if report["source_artifact_check_performed"]:
+                        print(
+                            "source batch record: "
+                            f"{'PASS' if report['source_batch_record_ok'] else 'FAIL'}"
+                        )
+                        print(
+                            "prediction table: "
+                            f"{'PASS' if report['prediction_table_ok'] else 'FAIL'}"
+                        )
+                        print(
+                            "derivation: "
+                            f"{'PASS' if report['derivation_ok'] else 'FAIL'}"
+                        )
+                    print(f"prediction rows: {report['n_rows']}")
+                    print(
+                        f"burden column: {report['burden_column']}"
                     )
                 elif report["kind"] == "measurement_plan":
                     print(

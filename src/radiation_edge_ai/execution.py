@@ -707,12 +707,28 @@ def verify_run_record(
 
 
 def verify_target(path: Path, *, check_artifacts: bool = True) -> dict[str, object]:
-    """Verify either a v0.1 run plan or a v0.1b completed run record."""
+    """Verify a supported Radiation Edge AI control-plane artifact."""
 
     target = path.expanduser().resolve()
     value = load_json_object(target)
     if value.get("record_type") == "run_record":
         return verify_run_record(target, check_source_artifacts=check_artifacts)
+
+    if value.get("record_type") == "batch_plan":
+        from radiation_edge_ai.batch import verify_batch_plan
+
+        return verify_batch_plan(
+            target,
+            check_artifacts=check_artifacts,
+        )
+
+    if value.get("record_type") == "batch_record":
+        from radiation_edge_ai.batch import verify_batch_record
+
+        return verify_batch_record(
+            target,
+            check_artifacts=check_artifacts,
+        )
 
     if value.get("record_type") == "measurement_plan":
         from radiation_edge_ai.measurement import verify_measurement_plan
@@ -728,6 +744,16 @@ def verify_target(path: Path, *, check_artifacts: bool = True) -> dict[str, obje
         return verify_measurement_record(
             target,
             check_artifacts=check_artifacts,
+        )
+
+    if value.get("report_type") == "nasa_batch_prediction_report":
+        from radiation_edge_ai.nasa_predictions import (
+            verify_nasa_batch_prediction_report,
+        )
+
+        return verify_nasa_batch_prediction_report(
+            target,
+            check_source_artifact=check_artifacts,
         )
 
     if value.get("report_type") == "nasa_endpoint_report":
