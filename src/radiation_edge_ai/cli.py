@@ -9,6 +9,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
 
+from radiation_edge_ai.application import (
+    execute_assay_manifest,
+)
 from radiation_edge_ai.batch import (
     create_batch_plan,
     execute_batch_plan,
@@ -139,6 +142,32 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--kl720-port", type=int)
     run.add_argument("--kl720-timeout-ms", type=int, default=10000)
 
+    assay_run = subparsers.add_parser(
+        "assay-run",
+        help=(
+            "execute a NASA assay manifest through the "
+            "verified offline application path"
+        ),
+    )
+    assay_run.add_argument(
+        "--manifest",
+        required=True,
+        type=Path,
+    )
+    assay_run.add_argument(
+        "--output-dir",
+        required=True,
+        type=Path,
+    )
+    assay_run.add_argument(
+        "--onnx-python",
+        type=Path,
+    )
+    assay_run.add_argument(
+        "--json",
+        action="store_true",
+    )
+
     batch_plan = subparsers.add_parser(
         "batch-plan",
         help="create a content-addressed batch inference plan",
@@ -258,6 +287,95 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                 kl720_timeout_ms=args.kl720_timeout_ms,
             )
             print(record_path)
+            return 0
+
+        if args.command == "assay-run":
+            summary = execute_assay_manifest(
+                args.manifest,
+                output_dir=args.output_dir,
+                onnx_python=args.onnx_python,
+            )
+
+            if args.json:
+                _dump_json(summary)
+            else:
+                ids = summary["ids"]
+                counts = summary["counts"]
+                scope = summary["scientific_scope"]
+
+                assert isinstance(ids, dict)
+                assert isinstance(counts, dict)
+                assert isinstance(scope, dict)
+
+                print("Radiation Edge AI - assay run")
+                print(f"assay: {summary['assay_id']}")
+                print(
+                    f"transaction: {ids['transaction_id']}"
+                )
+                print(f"batch: {ids['batch_id']}")
+                print(
+                    f"prediction: {ids['prediction_id']}"
+                )
+                print(
+                    f"measurement: {ids['measurement_id']}"
+                )
+                print(
+                    f"aggregation: {ids['aggregation_id']}"
+                )
+                print(
+                    "counts: "
+                    f"{counts['n_items']} items / "
+                    f"{counts['n_prediction_rows']} predictions / "
+                    f"{counts['n_nuclei']} nuclei / "
+                    f"{counts['n_samples']} samples"
+                )
+                print(
+                    "endpoint: "
+                    f"{summary['endpoint_semantics']}"
+                )
+                print("sample endpoints:")
+
+                endpoints = summary[
+                    "sample_endpoints"
+                ]
+
+                assert isinstance(endpoints, list)
+
+                for endpoint in endpoints:
+                    assert isinstance(
+                        endpoint,
+                        dict,
+                    )
+                    print(
+                        "  "
+                        f"{endpoint['sample_name']}: "
+                        f"n={endpoint['n_nuclei']}, "
+                        "mean_latent_burden="
+                        f"{endpoint['mean_latent_burden']}"
+                    )
+
+                print(
+                    "per-nucleus focus-count interpretation: "
+                    f"{scope['per_nucleus_focus_count_interpretation']}"
+                )
+                print(
+                    "biological reference read: "
+                    f"{scope['biological_reference_read']}"
+                )
+                print(
+                    "biological acceptance evaluated: "
+                    f"{scope['biological_acceptance_evaluated']}"
+                )
+                print(
+                    "hardware access performed: "
+                    f"{scope['hardware_access_performed']}"
+                )
+                print(
+                    "transaction record: "
+                    f"{summary['transaction_record_path']}"
+                )
+                print("verification: PASS")
+
             return 0
 
         if args.command == "batch-plan":
