@@ -102,7 +102,7 @@ The per-nucleus outputs remain latent continuous 53BP1 burden scores, not indivi
 ## Evidence freeze
 
 External v0.4 evidence freeze SHA256:
-PASTE_THE_FREEZE_SHA256_HERE
+555336ea5b6339f883e4560aed8c6698bac30a2c9b3db374f3e4a0a6599f98c5
 
 The external freeze and deployment/data artifacts remain outside Git.
 
