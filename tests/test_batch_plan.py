@@ -26,6 +26,10 @@ from radiation_edge_ai.nasa_predictions import (
     create_nasa_batch_prediction_report,
     verify_nasa_batch_prediction_report,
 )
+from radiation_edge_ai.transaction import (
+    execute_batch_measurement_transaction,
+    verify_batch_measurement_transaction,
+)
 
 
 def _write_manifest(
@@ -811,3 +815,255 @@ def test_cli_batch_predictions_and_verify(
     assert "prediction rows: 2" in output
     assert "burden column: cpu_onnx_burden" in output
     assert "verification: PASS" in output
+
+
+
+def _write_measurement_valid_manifest(
+    root: Path,
+) -> Path:
+    path = _write_manifest(root)
+
+    value = json.loads(
+        path.read_text(encoding="utf-8")
+    )
+
+    for item in value["items"]:
+        item["metadata"]["sample_name"] = "SAMPLE_A"
+        item["metadata"]["dose_gy"] = 0.0
+        item["metadata"]["timepoint_hr"] = 4.0
+
+    path.write_text(
+        json.dumps(value, indent=2),
+        encoding="utf-8",
+    )
+
+    return path
+
+
+def test_execute_batch_measurement_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _write_measurement_valid_manifest(
+        tmp_path / "source"
+    )
+
+    plan_path = create_batch_plan(
+        manifest_path=manifest,
+        output_dir=tmp_path / "plans",
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_onnx_worker,
+    )
+
+    record_path = execute_batch_measurement_transaction(
+        plan_path,
+        output_dir=tmp_path / "transactions",
+        onnx_python=Path(sys.executable),
+    )
+
+    report = verify_batch_measurement_transaction(
+        record_path
+    )
+
+    assert report["ok"] is True
+    assert report["transaction_fingerprint_ok"] is True
+    assert report["record_fingerprint_ok"] is True
+    assert report["identity_bindings_ok"] is True
+    assert report["artifacts_ok"] is True
+    assert report["stages_ok"] is True
+    assert report["cross_artifact_bindings_ok"] is True
+    assert report["n_items"] == 2
+    assert report["n_prediction_rows"] == 2
+    assert report["n_nuclei"] == 2
+    assert report["n_samples"] == 1
+
+
+def test_batch_measurement_transaction_is_idempotent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _write_measurement_valid_manifest(
+        tmp_path / "source"
+    )
+
+    plan_path = create_batch_plan(
+        manifest_path=manifest,
+        output_dir=tmp_path / "plans",
+    )
+
+    calls = {"count": 0}
+
+    def counted(
+        command: list[str],
+        **kwargs: object,
+    ) -> SimpleNamespace:
+        calls["count"] += 1
+        return _fake_onnx_worker(
+            command,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        counted,
+    )
+
+    first = execute_batch_measurement_transaction(
+        plan_path,
+        output_dir=tmp_path / "transactions",
+        onnx_python=Path(sys.executable),
+    )
+
+    second = execute_batch_measurement_transaction(
+        plan_path,
+        output_dir=tmp_path / "transactions",
+        onnx_python=Path(sys.executable),
+    )
+
+    assert second == first
+
+    # Two nuclei execute only during the first transaction.
+    assert calls["count"] == 2
+
+
+def test_verify_target_recognizes_batch_measurement_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from radiation_edge_ai.execution import verify_target
+
+    manifest = _write_measurement_valid_manifest(
+        tmp_path / "source"
+    )
+
+    plan_path = create_batch_plan(
+        manifest_path=manifest,
+        output_dir=tmp_path / "plans",
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_onnx_worker,
+    )
+
+    record_path = execute_batch_measurement_transaction(
+        plan_path,
+        output_dir=tmp_path / "transactions",
+        onnx_python=Path(sys.executable),
+    )
+
+    report = verify_target(record_path)
+
+    assert report["kind"] == "batch_measurement_transaction"
+    assert report["ok"] is True
+
+
+def test_cli_batch_measure_and_verify(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from radiation_edge_ai.cli import main
+
+    manifest = _write_measurement_valid_manifest(
+        tmp_path / "source"
+    )
+
+    plan_path = create_batch_plan(
+        manifest_path=manifest,
+        output_dir=tmp_path / "plans",
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_onnx_worker,
+    )
+
+    status = main(
+        [
+            "batch-measure",
+            str(plan_path),
+            "--output-dir",
+            str(tmp_path / "transactions"),
+            "--onnx-python",
+            sys.executable,
+        ]
+    )
+
+    assert status == 0
+
+    record_path = Path(
+        capsys.readouterr().out.strip()
+    )
+
+    assert record_path.is_file()
+
+    status = main(
+        ["verify", str(record_path)]
+    )
+
+    assert status == 0
+
+    output = capsys.readouterr().out
+
+    assert "kind: batch_measurement_transaction" in output
+    assert "transaction_id: t1-" in output
+    assert "transaction fingerprint: PASS" in output
+    assert "record fingerprint: PASS" in output
+    assert "identity bindings: PASS" in output
+    assert "artifacts: PASS" in output
+    assert "component stages: PASS" in output
+    assert "cross-artifact bindings: PASS" in output
+    assert (
+        "transaction counts: "
+        "2 items / 2 predictions / 2 nuclei / 1 samples"
+        in output
+    )
+    assert "verification: PASS" in output
+
+
+def test_transaction_scope_preserves_scientific_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _write_measurement_valid_manifest(
+        tmp_path / "source"
+    )
+
+    plan_path = create_batch_plan(
+        manifest_path=manifest,
+        output_dir=tmp_path / "plans",
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_onnx_worker,
+    )
+
+    record_path = execute_batch_measurement_transaction(
+        plan_path,
+        output_dir=tmp_path / "transactions",
+        onnx_python=Path(sys.executable),
+    )
+
+    record = json.loads(
+        record_path.read_text(encoding="utf-8")
+    )
+
+    scope = record["scientific_scope"]
+
+    assert scope["batch_inference_artifact_verified"] is True
+    assert scope["prediction_table_artifact_verified"] is True
+    assert scope["endpoint_reconstruction_artifact_verified"] is True
+    assert scope["per_nucleus_focus_count_interpretation"] is False
+    assert scope["biological_reference_read"] is False
+    assert scope["biological_acceptance_evaluated"] is False
+    assert scope["hardware_access_performed"] is False

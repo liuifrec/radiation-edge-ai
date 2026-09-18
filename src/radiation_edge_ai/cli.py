@@ -37,6 +37,9 @@ from radiation_edge_ai.nasa_endpoint import (
 from radiation_edge_ai.nasa_predictions import (
     create_nasa_batch_prediction_report,
 )
+from radiation_edge_ai.transaction import (
+    execute_batch_measurement_transaction,
+)
 
 
 def _dump_json(value: object) -> None:
@@ -161,6 +164,26 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
     )
 
+    batch_measure = subparsers.add_parser(
+        "batch-measure",
+        help=(
+            "execute the verified CPU batch-to-measurement transaction"
+        ),
+    )
+    batch_measure.add_argument(
+        "plan_path",
+        type=Path,
+    )
+    batch_measure.add_argument(
+        "--output-dir",
+        required=True,
+        type=Path,
+    )
+    batch_measure.add_argument(
+        "--onnx-python",
+        type=Path,
+    )
+
     measure_plan = subparsers.add_parser(
         "measure-plan",
         help="create a content-addressed assay measurement plan",
@@ -261,6 +284,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
             print(report_path)
             return 0
 
+        if args.command == "batch-measure":
+            record_path = execute_batch_measurement_transaction(
+                args.plan_path,
+                output_dir=args.output_dir,
+                onnx_python=args.onnx_python,
+            )
+            print(record_path)
+            return 0
+
         if args.command == "measure-plan":
             if args.assay != MEASUREMENT_ASSAY_ID:
                 raise ControlPlaneError(
@@ -314,6 +346,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                     print(f"batch_id: {report['batch_id']}")
                 elif report["kind"] == "nasa_batch_prediction_report":
                     print(f"prediction_id: {report['prediction_id']}")
+                elif report["kind"] == "batch_measurement_transaction":
+                    print(f"transaction_id: {report['transaction_id']}")
                 elif report["kind"] in {
                     "measurement_plan",
                     "measurement_record",
@@ -399,6 +433,39 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                     print(f"prediction rows: {report['n_rows']}")
                     print(
                         f"burden column: {report['burden_column']}"
+                    )
+                elif report["kind"] == "batch_measurement_transaction":
+                    print(
+                        "transaction fingerprint: "
+                        f"{'PASS' if report['transaction_fingerprint_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "record fingerprint: "
+                        f"{'PASS' if report['record_fingerprint_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "identity bindings: "
+                        f"{'PASS' if report['identity_bindings_ok'] else 'FAIL'}"
+                    )
+                    if report["artifact_check_performed"]:
+                        print(
+                            "artifacts: "
+                            f"{'PASS' if report['artifacts_ok'] else 'FAIL'}"
+                        )
+                        print(
+                            "component stages: "
+                            f"{'PASS' if report['stages_ok'] else 'FAIL'}"
+                        )
+                        print(
+                            "cross-artifact bindings: "
+                            f"{'PASS' if report['cross_artifact_bindings_ok'] else 'FAIL'}"
+                        )
+                    print(
+                        f"transaction counts: "
+                        f"{report['n_items']} items / "
+                        f"{report['n_prediction_rows']} predictions / "
+                        f"{report['n_nuclei']} nuclei / "
+                        f"{report['n_samples']} samples"
                     )
                 elif report["kind"] == "measurement_plan":
                     print(
