@@ -29,6 +29,10 @@ from radiation_edge_ai.nasa_predictions import (
     create_nasa_batch_prediction_report,
     verify_nasa_batch_prediction_report,
 )
+from radiation_edge_ai.reporting import (
+    create_assay_result_package,
+    verify_assay_result_package,
+)
 from radiation_edge_ai.transaction import (
     execute_batch_measurement_transaction,
     verify_batch_measurement_transaction,
@@ -1270,3 +1274,372 @@ def test_cli_assay_run_json_summary(
     assert value["counts"]["n_nuclei"] == 2
     assert value["counts"]["n_samples"] == 1
     assert len(value["sample_endpoints"]) == 1
+
+
+
+def _completed_synthetic_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    manifest = _write_measurement_valid_manifest(
+        tmp_path / "source"
+    )
+
+    plan_path = create_batch_plan(
+        manifest_path=manifest,
+        output_dir=tmp_path / "plans",
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_onnx_worker,
+    )
+
+    return execute_batch_measurement_transaction(
+        plan_path,
+        output_dir=tmp_path / "transactions",
+        onnx_python=Path(sys.executable),
+    )
+
+
+def test_create_and_verify_assay_result_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transaction_path = _completed_synthetic_transaction(
+        tmp_path,
+        monkeypatch,
+    )
+
+    manifest_path = create_assay_result_package(
+        transaction_path,
+        output_dir=tmp_path / "packages",
+    )
+
+    report = verify_assay_result_package(
+        manifest_path
+    )
+
+    assert report["ok"] is True
+    assert report["kind"] == "assay_result_package"
+    assert report["fingerprint_ok"] is True
+    assert report["package_id_ok"] is True
+    assert report["files_ok"] is True
+    assert report["derivation_ok"] is True
+    assert report["scientific_scope_ok"] is True
+    assert report["counts_ok"] is True
+    assert report[
+        "source_transaction_verified_at_export"
+    ] is True
+    assert report["n_nuclei"] == 2
+    assert report["n_samples"] == 1
+
+    manifest = json.loads(
+        manifest_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert manifest["package_id"].startswith(
+        "rp1-"
+    )
+
+    assert set(manifest["files"]) == {
+        "result",
+        "provenance",
+        "sample_aggregates",
+        "report",
+    }
+
+    package_root = manifest_path.parent
+
+    for record in manifest["files"].values():
+        relative_path = record["relative_path"]
+
+        assert not Path(relative_path).is_absolute()
+        assert (
+            package_root / relative_path
+        ).is_file()
+
+    result_path = (
+        package_root
+        / manifest["files"]["result"][
+            "relative_path"
+        ]
+    )
+
+    result = json.loads(
+        result_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert result["verification"] == "PASS"
+    assert result["counts"] == {
+        "n_items": 2,
+        "n_prediction_rows": 2,
+        "n_nuclei": 2,
+        "n_samples": 1,
+    }
+
+    endpoints = result["sample_endpoints"]
+
+    assert len(endpoints) == 1
+    assert endpoints[0]["sample_name"] == "SAMPLE_A"
+    assert endpoints[0]["n_nuclei"] == 2
+    assert endpoints[0][
+        "mean_latent_burden"
+    ] == pytest.approx(1.0)
+
+    scope = result["scientific_scope"]
+
+    assert scope[
+        "per_nucleus_focus_count_interpretation"
+    ] is False
+    assert scope[
+        "biological_reference_read"
+    ] is False
+    assert scope[
+        "biological_acceptance_evaluated"
+    ] is False
+    assert scope[
+        "hardware_access_performed"
+    ] is False
+
+    provenance_path = (
+        package_root
+        / manifest["files"]["provenance"][
+            "relative_path"
+        ]
+    )
+
+    provenance = json.loads(
+        provenance_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert provenance[
+        "path_independent_export"
+    ] is True
+    assert provenance[
+        "upstream_binary_artifacts_included"
+    ] is False
+
+    # The portable package must not disclose local
+    # filesystem roots in its exported content.
+    local_root = str(tmp_path)
+
+    for name in (
+        "package_manifest.json",
+        "result.json",
+        "provenance.json",
+        "report.md",
+        "sample_aggregates.csv",
+    ):
+        exported = (
+            package_root / name
+        ).read_text(
+            encoding="utf-8-sig"
+        )
+
+        assert local_root not in exported
+
+
+def test_assay_result_package_is_idempotent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transaction_path = _completed_synthetic_transaction(
+        tmp_path,
+        monkeypatch,
+    )
+
+    first = create_assay_result_package(
+        transaction_path,
+        output_dir=tmp_path / "packages",
+    )
+
+    first_sha = sha256_file(first)
+
+    second = create_assay_result_package(
+        transaction_path,
+        output_dir=tmp_path / "packages",
+    )
+
+    assert second == first
+    assert sha256_file(second) == first_sha
+
+
+def test_assay_result_package_is_relocatable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transaction_path = _completed_synthetic_transaction(
+        tmp_path,
+        monkeypatch,
+    )
+
+    manifest_path = create_assay_result_package(
+        transaction_path,
+        output_dir=tmp_path / "packages",
+    )
+
+    original_root = manifest_path.parent
+
+    relocated_parent = (
+        tmp_path / "relocated"
+    )
+    relocated_parent.mkdir()
+
+    relocated_root = (
+        relocated_parent
+        / original_root.name
+    )
+
+    shutil.copytree(
+        original_root,
+        relocated_root,
+    )
+
+    # Remove the original export to prove verification
+    # depends only on the relocated package itself.
+    shutil.rmtree(
+        original_root
+    )
+
+    relocated_manifest = (
+        relocated_root
+        / "package_manifest.json"
+    )
+
+    report = verify_assay_result_package(
+        relocated_manifest
+    )
+
+    assert report["ok"] is True
+    assert report["files_ok"] is True
+    assert report["derivation_ok"] is True
+    assert report["scientific_scope_ok"] is True
+    assert report["counts_ok"] is True
+
+
+def test_assay_result_package_tamper_is_detected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transaction_path = _completed_synthetic_transaction(
+        tmp_path,
+        monkeypatch,
+    )
+
+    manifest_path = create_assay_result_package(
+        transaction_path,
+        output_dir=tmp_path / "packages",
+    )
+
+    report_path = (
+        manifest_path.parent / "report.md"
+    )
+
+    with report_path.open(
+        "a",
+        encoding="utf-8",
+    ) as handle:
+        handle.write(
+            "\nTAMPERED\n"
+        )
+
+    report = verify_assay_result_package(
+        manifest_path
+    )
+
+    assert report["files_ok"] is False
+    assert report["derivation_ok"] is False
+    assert report["ok"] is False
+
+
+def test_verify_target_recognizes_assay_result_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from radiation_edge_ai.execution import verify_target
+
+    transaction_path = _completed_synthetic_transaction(
+        tmp_path,
+        monkeypatch,
+    )
+
+    manifest_path = create_assay_result_package(
+        transaction_path,
+        output_dir=tmp_path / "packages",
+    )
+
+    report = verify_target(
+        manifest_path
+    )
+
+    assert report["kind"] == "assay_result_package"
+    assert report["package_id"].startswith(
+        "rp1-"
+    )
+    assert report["ok"] is True
+
+
+def test_cli_assay_report_and_verify(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from radiation_edge_ai.cli import main
+
+    transaction_path = _completed_synthetic_transaction(
+        tmp_path,
+        monkeypatch,
+    )
+
+    status = main(
+        [
+            "assay-report",
+            str(transaction_path),
+            "--output-dir",
+            str(tmp_path / "packages"),
+        ]
+    )
+
+    assert status == 0
+
+    manifest_path = Path(
+        capsys.readouterr().out.strip()
+    )
+
+    assert manifest_path.is_file()
+
+    status = main(
+        [
+            "verify",
+            str(manifest_path),
+        ]
+    )
+
+    assert status == 0
+
+    output = capsys.readouterr().out
+
+    assert (
+        "kind: assay_result_package"
+        in output
+    )
+    assert "package_id: rp1-" in output
+    assert "fingerprint: PASS" in output
+    assert "package identity: PASS" in output
+    assert "files: PASS" in output
+    assert "derivation: PASS" in output
+    assert "scientific scope: PASS" in output
+    assert "counts: PASS" in output
+    assert (
+        "result counts: 2 nuclei / 1 samples"
+        in output
+    )
+    assert "verification: PASS" in output

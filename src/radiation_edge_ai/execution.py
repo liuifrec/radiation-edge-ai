@@ -740,6 +740,15 @@ def verify_target(path: Path, *, check_artifacts: bool = True) -> dict[str, obje
             check_artifacts=check_artifacts,
         )
 
+    if value.get("record_type") == "assay_result_package":
+        from radiation_edge_ai.reporting import (
+            verify_assay_result_package,
+        )
+
+        return verify_assay_result_package(
+            target,
+        )
+
     if value.get("record_type") == "measurement_plan":
         from radiation_edge_ai.measurement import verify_measurement_plan
 
