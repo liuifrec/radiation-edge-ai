@@ -40,6 +40,9 @@ from radiation_edge_ai.nasa_endpoint import (
 from radiation_edge_ai.nasa_predictions import (
     create_nasa_batch_prediction_report,
 )
+from radiation_edge_ai.reporting import (
+    create_assay_result_package,
+)
 from radiation_edge_ai.transaction import (
     execute_batch_measurement_transaction,
 )
@@ -166,6 +169,23 @@ def build_parser() -> argparse.ArgumentParser:
     assay_run.add_argument(
         "--json",
         action="store_true",
+    )
+
+    assay_report = subparsers.add_parser(
+        "assay-report",
+        help=(
+            "export a verified assay transaction as a "
+            "portable result package"
+        ),
+    )
+    assay_report.add_argument(
+        "transaction_path",
+        type=Path,
+    )
+    assay_report.add_argument(
+        "--output-dir",
+        required=True,
+        type=Path,
     )
 
     batch_plan = subparsers.add_parser(
@@ -378,6 +398,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
 
             return 0
 
+        if args.command == "assay-report":
+            manifest_path = create_assay_result_package(
+                args.transaction_path,
+                output_dir=args.output_dir,
+            )
+            print(manifest_path)
+            return 0
+
         if args.command == "batch-plan":
             plan_path = create_batch_plan(
                 manifest_path=args.manifest,
@@ -466,6 +494,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                     print(f"prediction_id: {report['prediction_id']}")
                 elif report["kind"] == "batch_measurement_transaction":
                     print(f"transaction_id: {report['transaction_id']}")
+                elif report["kind"] == "assay_result_package":
+                    print(f"package_id: {report['package_id']}")
                 elif report["kind"] in {
                     "measurement_plan",
                     "measurement_record",
@@ -583,6 +613,35 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                         f"{report['n_items']} items / "
                         f"{report['n_prediction_rows']} predictions / "
                         f"{report['n_nuclei']} nuclei / "
+                        f"{report['n_samples']} samples"
+                    )
+                elif report["kind"] == "assay_result_package":
+                    print(
+                        "fingerprint: "
+                        f"{'PASS' if report['fingerprint_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "package identity: "
+                        f"{'PASS' if report['package_id_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "files: "
+                        f"{'PASS' if report['files_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "derivation: "
+                        f"{'PASS' if report['derivation_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "scientific scope: "
+                        f"{'PASS' if report['scientific_scope_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "counts: "
+                        f"{'PASS' if report['counts_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        f"result counts: {report['n_nuclei']} nuclei / "
                         f"{report['n_samples']} samples"
                     )
                 elif report["kind"] == "measurement_plan":
