@@ -9,8 +9,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
 
-from radiation_edge_ai.application import (
-    execute_assay_manifest,
+from radiation_edge_ai.assay_runtime import (
+    create_registered_assay_result_package,
+    execute_registered_assay_manifest,
 )
 from radiation_edge_ai.batch import (
     create_batch_plan,
@@ -39,9 +40,6 @@ from radiation_edge_ai.nasa_endpoint import (
 )
 from radiation_edge_ai.nasa_predictions import (
     create_nasa_batch_prediction_report,
-)
-from radiation_edge_ai.reporting import (
-    create_assay_result_package,
 )
 from radiation_edge_ai.transaction import (
     execute_batch_measurement_transaction,
@@ -148,8 +146,8 @@ def build_parser() -> argparse.ArgumentParser:
     assay_run = subparsers.add_parser(
         "assay-run",
         help=(
-            "execute a NASA assay manifest through the "
-            "verified offline application path"
+            "execute a registered assay manifest through its "
+            "approved offline application adapter"
         ),
     )
     assay_run.add_argument(
@@ -310,7 +308,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
             return 0
 
         if args.command == "assay-run":
-            summary = execute_assay_manifest(
+            summary = execute_registered_assay_manifest(
                 args.manifest,
                 output_dir=args.output_dir,
                 onnx_python=args.onnx_python,
@@ -399,7 +397,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
             return 0
 
         if args.command == "assay-report":
-            manifest_path = create_assay_result_package(
+            manifest_path = create_registered_assay_result_package(
                 args.transaction_path,
                 output_dir=args.output_dir,
             )

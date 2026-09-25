@@ -741,11 +741,11 @@ def verify_target(path: Path, *, check_artifacts: bool = True) -> dict[str, obje
         )
 
     if value.get("record_type") == "assay_result_package":
-        from radiation_edge_ai.reporting import (
-            verify_assay_result_package,
+        from radiation_edge_ai.assay_runtime import (
+            verify_registered_assay_result_package,
         )
 
-        return verify_assay_result_package(
+        return verify_registered_assay_result_package(
             target,
         )
 
