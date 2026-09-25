@@ -6,10 +6,10 @@ It deliberately does not generalize assay-specific scientific algorithms.
 Each registered assay owns its own validated execution, measurement, QC, and
 reporting implementation.
 
-v0.8 enables the existing NASA application and result-package adapters through
-this registry. DNAi is registered with an explicit scientific contract but
-remains execution-disabled until its tiled segmentation, stitching, object
-reconstruction, and QC path is integrated.
+v0.8 introduced the multi-assay registry. v0.9 enables the DNAi floating
+FP512 application adapter for frozen deployment-window inputs while keeping
+DNAi result packaging, raw-microscopy ingestion, and KL720 application
+execution disabled.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ _RUNTIME_SPECS = {
         package_source_record_type=(
             "dnai_fiber_measurement_transaction"
         ),
-        manifest_run_supported=False,
+        manifest_run_supported=True,
         result_package_supported=False,
         prediction_semantics=(
             "tile-level segmentation reconstructed into a "
@@ -265,6 +265,24 @@ def execute_registered_assay_manifest(
         )
 
         summary = execute_assay_manifest(
+            manifest_path,
+            output_dir=output_dir,
+            onnx_python=onnx_python,
+        )
+
+        if summary.get("assay_id") != assay_id:
+            raise ControlPlaneError(
+                "Assay application returned a mismatched assay_id"
+            )
+
+        return summary
+
+    if assay_id == DNAI_ASSAY_ID:
+        from radiation_edge_ai.dna_fiber.application import (
+            execute_dnai_assay_manifest,
+        )
+
+        summary = execute_dnai_assay_manifest(
             manifest_path,
             output_dir=output_dir,
             onnx_python=onnx_python,

@@ -79,7 +79,7 @@ def test_runtime_registry_covers_canonical_assays(
         DNAI_ASSAY_ID
     )
 
-    assert dnai.manifest_run_supported is False
+    assert dnai.manifest_run_supported is True
     assert dnai.result_package_supported is False
     assert (
         dnai.package_source_record_type
@@ -149,9 +149,12 @@ def test_nasa_manifest_dispatch_preserves_existing_adapter(
     }
 
 
-def test_dnai_manifest_is_registered_but_fails_closed(
+def test_dnai_manifest_dispatches_application_adapter(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from radiation_edge_ai.dna_fiber import application
+
     manifest = _write_json(
         tmp_path / "dnai_manifest.json",
         {
@@ -160,23 +163,47 @@ def test_dnai_manifest_is_registered_but_fails_closed(
         },
     )
 
-    with pytest.raises(
-        ControlPlaneError,
-        match="registered but manifest execution is not enabled",
-    ) as exc:
-        execute_registered_assay_manifest(
-            manifest,
-            output_dir=tmp_path / "out",
-        )
+    output_dir = tmp_path / "application"
+    onnx_python = tmp_path / "dnai_python.exe"
 
-    message = str(exc.value)
+    calls: dict[str, object] = {}
 
-    assert "dnai-tile-stitch-object-v1" in message
-    assert (
-        "Pixel agreement is not a surrogate"
-        in message
+    def fake_execute(
+        manifest_path: Path,
+        *,
+        output_dir: Path,
+        onnx_python: Optional[Path] = None,  # noqa: UP045
+    ) -> dict[str, object]:
+        calls["manifest"] = manifest_path
+        calls["output_dir"] = output_dir
+        calls["onnx_python"] = onnx_python
+
+        return {
+            "kind": "assay_run_summary",
+            "assay_id": DNAI_ASSAY_ID,
+            "verification": "PASS",
+        }
+
+    monkeypatch.setattr(
+        application,
+        "execute_dnai_assay_manifest",
+        fake_execute,
     )
 
+    result = execute_registered_assay_manifest(
+        manifest,
+        output_dir=output_dir,
+        onnx_python=onnx_python,
+    )
+
+    assert result["assay_id"] == DNAI_ASSAY_ID
+    assert result["verification"] == "PASS"
+
+    assert calls == {
+        "manifest": manifest,
+        "output_dir": output_dir,
+        "onnx_python": onnx_python,
+    }
 
 def test_unknown_manifest_assay_is_rejected(
     tmp_path: Path,
