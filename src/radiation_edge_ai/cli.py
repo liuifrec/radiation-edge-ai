@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Optional
 
 from radiation_edge_ai.assay_runtime import (
+    DNAI_ASSAY_ID,
+    NASA_ASSAY_ID,
     create_registered_assay_result_package,
     execute_registered_assay_manifest,
 )
@@ -316,21 +318,44 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
 
             if args.json:
                 _dump_json(summary)
-            else:
+                return 0
+
+            assay_id = summary.get(
+                "assay_id"
+            )
+
+            if assay_id == NASA_ASSAY_ID:
                 ids = summary["ids"]
                 counts = summary["counts"]
-                scope = summary["scientific_scope"]
+                scope = summary[
+                    "scientific_scope"
+                ]
 
-                assert isinstance(ids, dict)
-                assert isinstance(counts, dict)
-                assert isinstance(scope, dict)
+                assert isinstance(
+                    ids,
+                    dict,
+                )
+                assert isinstance(
+                    counts,
+                    dict,
+                )
+                assert isinstance(
+                    scope,
+                    dict,
+                )
 
-                print("Radiation Edge AI - assay run")
-                print(f"assay: {summary['assay_id']}")
+                print(
+                    "Radiation Edge AI - assay run"
+                )
+                print(
+                    f"assay: {assay_id}"
+                )
                 print(
                     f"transaction: {ids['transaction_id']}"
                 )
-                print(f"batch: {ids['batch_id']}")
+                print(
+                    f"batch: {ids['batch_id']}"
+                )
                 print(
                     f"prediction: {ids['prediction_id']}"
                 )
@@ -351,13 +376,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                     "endpoint: "
                     f"{summary['endpoint_semantics']}"
                 )
-                print("sample endpoints:")
+                print(
+                    "sample endpoints:"
+                )
 
                 endpoints = summary[
                     "sample_endpoints"
                 ]
 
-                assert isinstance(endpoints, list)
+                assert isinstance(
+                    endpoints,
+                    list,
+                )
 
                 for endpoint in endpoints:
                     assert isinstance(
@@ -392,9 +422,108 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                     "transaction record: "
                     f"{summary['transaction_record_path']}"
                 )
-                print("verification: PASS")
+                print(
+                    "verification: PASS"
+                )
+                return 0
 
-            return 0
+            if assay_id == DNAI_ASSAY_ID:
+                ids = summary["ids"]
+                counts = summary["counts"]
+                measurements = summary[
+                    "measurements"
+                ]
+                scope = summary[
+                    "scientific_scope"
+                ]
+
+                assert isinstance(
+                    ids,
+                    dict,
+                )
+                assert isinstance(
+                    counts,
+                    dict,
+                )
+                assert isinstance(
+                    measurements,
+                    dict,
+                )
+                assert isinstance(
+                    scope,
+                    dict,
+                )
+
+                print(
+                    "Radiation Edge AI - assay run"
+                )
+                print(
+                    f"assay: {assay_id}"
+                )
+                print(
+                    "adapter: "
+                    f"{summary['application_adapter']}"
+                )
+                print(
+                    f"field: {ids['field_id']}"
+                )
+                print(
+                    f"transaction: {ids['transaction_id']}"
+                )
+                print(
+                    "field execution: "
+                    f"{summary['field_execution']}"
+                )
+                print(
+                    "counts: "
+                    f"{counts['n_windows']} windows / "
+                    f"{counts['n_fibers_valid']} valid fibers"
+                )
+                print(
+                    "mean valid ratio: "
+                    f"{measurements['mean_valid_ratio']}"
+                )
+                print(
+                    "total valid length (um): "
+                    f"{measurements['total_valid_length_um']}"
+                )
+                print(
+                    "endpoint: "
+                    f"{summary['endpoint_semantics']}"
+                )
+                print(
+                    "raw microscopy preprocessing performed: "
+                    f"{scope['raw_microscopy_preprocessing_performed']}"
+                )
+                print(
+                    "biological fidelity evaluated: "
+                    f"{scope['biological_fidelity_evaluated']}"
+                )
+                print(
+                    "KL720 hardware access performed: "
+                    f"{scope['kl720_hardware_access_performed']}"
+                )
+                print(
+                    "result packaging performed: "
+                    f"{scope['result_packaging_performed']}"
+                )
+                print(
+                    "field record: "
+                    f"{summary['field_record_path']}"
+                )
+                print(
+                    "transaction record: "
+                    f"{summary['transaction_record_path']}"
+                )
+                print(
+                    "verification: PASS"
+                )
+                return 0
+
+            raise ControlPlaneError(
+                "Assay application returned unsupported "
+                f"summary assay_id {assay_id!r}"
+            )
 
         if args.command == "assay-report":
             manifest_path = create_registered_assay_result_package(
@@ -494,6 +623,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                     print(f"transaction_id: {report['transaction_id']}")
                 elif report["kind"] == "assay_result_package":
                     print(f"package_id: {report['package_id']}")
+                elif report["kind"] == "dnai_fiber_field_record":
+                    print(f"field_id: {report['field_id']}")
                 elif report["kind"] in {
                     "measurement_plan",
                     "measurement_record",
@@ -641,6 +772,44 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                     print(
                         f"result counts: {report['n_nuclei']} nuclei / "
                         f"{report['n_samples']} samples"
+                    )
+                elif report["kind"] == "dnai_fiber_field_record":
+                    print(
+                        "identity semantics: "
+                        f"{'PASS' if report['identity_semantics_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "fingerprint: "
+                        f"{'PASS' if report['fingerprint_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "field identity: "
+                        f"{'PASS' if report['field_id_ok'] else 'FAIL'}"
+                    )
+                    if report["artifact_check_performed"]:
+                        print(
+                            "source artifacts: "
+                            f"{'PASS' if report['source_artifacts_ok'] else 'FAIL'}"
+                        )
+                        print(
+                            "window artifacts: "
+                            f"{'PASS' if report['window_artifacts_ok'] else 'FAIL'}"
+                        )
+                        print(
+                            "derived artifacts: "
+                            f"{'PASS' if report['derived_artifacts_ok'] else 'FAIL'}"
+                        )
+                    print(
+                        "scientific scope: "
+                        f"{'PASS' if report['scientific_scope_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        "measurements: "
+                        f"{'PASS' if report['measurements_ok'] else 'FAIL'}"
+                    )
+                    print(
+                        f"field counts: {report['n_windows']} windows / "
+                        f"{report['n_fibers_valid']} valid fibers"
                     )
                 elif report["kind"] == "measurement_plan":
                     print(
