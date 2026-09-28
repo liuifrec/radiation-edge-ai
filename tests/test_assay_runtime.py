@@ -80,7 +80,7 @@ def test_runtime_registry_covers_canonical_assays(
     )
 
     assert dnai.manifest_run_supported is True
-    assert dnai.result_package_supported is False
+    assert dnai.result_package_supported is True
     assert (
         dnai.package_source_record_type
         == "dnai_fiber_measurement_transaction"
@@ -282,11 +282,15 @@ def test_nasa_result_packaging_dispatches_existing_adapter(
     }
 
 
-def test_dnai_result_packaging_is_registered_but_fails_closed(
+def test_dnai_result_packaging_dispatches_adapter(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from radiation_edge_ai.dna_fiber import reporting
+
     source = _write_json(
-        tmp_path / "dnai_transaction.json",
+        tmp_path
+        / "dnai_transaction.json",
         {
             "schema_version": 1,
             "record_type": (
@@ -296,19 +300,50 @@ def test_dnai_result_packaging_is_registered_but_fails_closed(
         },
     )
 
-    with pytest.raises(
-        ControlPlaneError,
-        match="registered but result packaging is not enabled",
-    ) as exc:
+    output_dir = (
+        tmp_path / "packages"
+    )
+
+    expected = (
+        output_dir
+        / "drp1-test"
+        / "package_manifest.json"
+    )
+
+    calls: dict[str, object] = {}
+
+    def fake_create(
+        transaction_path: Path,
+        *,
+        output_dir: Path,
+    ) -> Path:
+        calls["source"] = (
+            transaction_path
+        )
+        calls["output_dir"] = (
+            output_dir
+        )
+        return expected
+
+    monkeypatch.setattr(
+        reporting,
+        "create_dnai_fiber_result_package",
+        fake_create,
+    )
+
+    result = (
         create_registered_assay_result_package(
             source,
-            output_dir=tmp_path / "packages",
+            output_dir=output_dir,
         )
-
-    assert (
-        "dnai-fiber-measurement-package-v1"
-        in str(exc.value)
     )
+
+    assert result == expected
+
+    assert calls == {
+        "source": source.resolve(),
+        "output_dir": output_dir,
+    }
 
 
 def test_nasa_package_verification_dispatches_existing_verifier(
@@ -363,29 +398,74 @@ def test_nasa_package_verification_dispatches_existing_verifier(
     assert calls["manifest"] == manifest.resolve()
 
 
-def test_dnai_package_verifier_fails_closed_until_enabled(
+def test_dnai_package_verification_dispatches_adapter(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from radiation_edge_ai.dna_fiber import reporting
+
     manifest = _write_json(
         tmp_path
-        / "rp1-dnai"
+        / "drp1-test"
         / "package_manifest.json",
         {
             "schema_version": 1,
-            "record_type": "assay_result_package",
+            "record_type": (
+                "assay_result_package"
+            ),
             "identity": {
-                "assay_id": DNAI_ASSAY_ID,
+                "assay_id": (
+                    DNAI_ASSAY_ID
+                ),
             },
         },
     )
 
-    with pytest.raises(
-        ControlPlaneError,
-        match="has no enabled result-package verifier",
-    ):
+    calls: dict[str, object] = {}
+
+    def fake_verify(
+        manifest_path: Path,
+    ) -> dict[str, object]:
+        calls["manifest"] = (
+            manifest_path
+        )
+
+        return {
+            "kind": (
+                "assay_result_package"
+            ),
+            "package_id": (
+                "drp1-test"
+            ),
+            "ok": True,
+        }
+
+    monkeypatch.setattr(
+        reporting,
+        "verify_dnai_fiber_result_package",
+        fake_verify,
+    )
+
+    report = (
         verify_registered_assay_result_package(
             manifest
         )
+    )
+
+    assert report["ok"] is True
+    assert (
+        report["assay_id"]
+        == DNAI_ASSAY_ID
+    )
+    assert (
+        report["runtime_adapter"]
+        == "dnai-fiber-measurement-package-v1"
+    )
+
+    assert (
+        calls["manifest"]
+        == manifest.resolve()
+    )
 
 
 def test_generic_verify_target_routes_package_through_registry(

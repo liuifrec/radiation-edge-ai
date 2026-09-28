@@ -7,6 +7,7 @@ reconstruction.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -71,6 +72,60 @@ def _artifact_record(
     }
 
 
+def _canonical_lf_bytes(
+    path: Path,
+) -> bytes:
+    """Return source-text bytes with only CRLF canonicalized to LF."""
+
+    try:
+        raw = (
+            path
+            .expanduser()
+            .resolve()
+            .read_bytes()
+        )
+    except OSError as exc:
+        raise ControlPlaneError(
+            f"Could not read source-text artifact: {path}"
+        ) from exc
+
+    return raw.replace(
+        b"\r\n",
+        b"\n",
+    )
+
+
+def _worker_source_artifact_record(
+    path: Path,
+) -> dict[str, object]:
+    """Record worker source using platform-independent LF text bytes."""
+
+    resolved = (
+        path
+        .expanduser()
+        .resolve()
+    )
+
+    if not resolved.is_file():
+        raise ControlPlaneError(
+            f"Worker source is not a readable file: {resolved}"
+        )
+
+    canonical = _canonical_lf_bytes(
+        resolved
+    )
+
+    return {
+        "path": str(resolved),
+        "sha256": hashlib.sha256(
+            canonical
+        ).hexdigest(),
+        "size_bytes": len(
+            canonical
+        ),
+    }
+
+
 def _artifact_metadata_ok(
     value: object,
 ) -> bool:
@@ -119,6 +174,49 @@ def _artifact_bytes_ok(
         and path.stat().st_size
         == int(value["size_bytes"])
         and sha256_file(path)
+        == value["sha256"]
+    )
+
+
+def _worker_source_bytes_ok(
+    value: object,
+) -> bool:
+    """Verify worker source against its canonical LF byte representation."""
+
+    if not _artifact_metadata_ok(
+        value
+    ):
+        return False
+
+    assert isinstance(
+        value,
+        dict,
+    )
+
+    path = Path(
+        str(value["path"])
+    ).expanduser().resolve()
+
+    if not path.is_file():
+        return False
+
+    try:
+        canonical = (
+            _canonical_lf_bytes(
+                path
+            )
+        )
+    except ControlPlaneError:
+        return False
+
+    return bool(
+        len(canonical)
+        == int(
+            value["size_bytes"]
+        )
+        and hashlib.sha256(
+            canonical
+        ).hexdigest()
         == value["sha256"]
     )
 
@@ -600,7 +698,7 @@ def create_dnai_fiber_measurement_transaction(
     )
 
     worker_artifact = (
-        _artifact_record(
+        _worker_source_artifact_record(
             worker_path
         )
     )
@@ -906,16 +1004,31 @@ def verify_dnai_fiber_measurement_transaction(
         artifacts_metadata_ok
     )
 
-    if check_artifacts:
-        artifacts_ok = all(
+    worker_source_exact_bytes_ok = False
+    worker_source_lf_canonical_ok = False
+
+    if artifacts_metadata_ok:
+        worker_source_exact_bytes_ok = (
             _artifact_bytes_ok(
-                artifact
+                worker_artifact
             )
-            for artifact in (
-                manifest_artifact,
-                field_artifact,
-                worker_artifact,
+        )
+
+        worker_source_lf_canonical_ok = (
+            _worker_source_bytes_ok(
+                worker_artifact
             )
+        )
+
+    if check_artifacts:
+        artifacts_ok = bool(
+            _artifact_bytes_ok(
+                manifest_artifact
+            )
+            and _artifact_bytes_ok(
+                field_artifact
+            )
+            and worker_source_lf_canonical_ok
         )
 
     identity_bindings_ok = False
@@ -1221,6 +1334,16 @@ def verify_dnai_fiber_measurement_transaction(
             check_artifacts
         ),
         "artifacts_ok": artifacts_ok,
+        "worker_source_exact_bytes_ok": (
+            worker_source_exact_bytes_ok
+        ),
+        "worker_source_lf_canonical_ok": (
+            worker_source_lf_canonical_ok
+        ),
+        "worker_source_lf_normalization_used": bool(
+            worker_source_lf_canonical_ok
+            and not worker_source_exact_bytes_ok
+        ),
         "manifest_semantics_ok": (
             manifest_semantics_ok
         ),
