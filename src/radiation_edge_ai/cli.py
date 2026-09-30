@@ -769,10 +769,38 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                         "counts: "
                         f"{'PASS' if report['counts_ok'] else 'FAIL'}"
                     )
-                    print(
-                        f"result counts: {report['n_nuclei']} nuclei / "
-                        f"{report['n_samples']} samples"
-                    )
+
+                    if (
+                        "n_windows" in report
+                        and "n_fibers_valid" in report
+                    ):
+                        if "csv_binding_ok" in report:
+                            print(
+                                "fiber table binding: "
+                                f"{'PASS' if report['csv_binding_ok'] else 'FAIL'}"
+                            )
+
+                        print(
+                            "result counts: "
+                            f"{report['n_windows']} windows / "
+                            f"{report['n_fibers_valid']} valid fibers"
+                        )
+
+                    elif (
+                        "n_nuclei" in report
+                        and "n_samples" in report
+                    ):
+                        print(
+                            "result counts: "
+                            f"{report['n_nuclei']} nuclei / "
+                            f"{report['n_samples']} samples"
+                        )
+
+                    else:
+                        raise ControlPlaneError(
+                            "Unsupported assay result-package count shape"
+                        )
+
                 elif report["kind"] == "dnai_fiber_field_record":
                     print(
                         "identity semantics: "

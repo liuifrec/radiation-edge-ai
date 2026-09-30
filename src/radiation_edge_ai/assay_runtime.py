@@ -87,7 +87,7 @@ _RUNTIME_SPECS = {
             "dnai_fiber_measurement_transaction"
         ),
         manifest_run_supported=True,
-        result_package_supported=False,
+        result_package_supported=True,
         prediction_semantics=(
             "tile-level segmentation reconstructed into a "
             "stitched microscopy-field segmentation"
@@ -350,6 +350,16 @@ def create_registered_assay_result_package(
             output_dir=output_dir,
         )
 
+    if assay_id == DNAI_ASSAY_ID:
+        from radiation_edge_ai.dna_fiber.reporting import (
+            create_dnai_fiber_result_package,
+        )
+
+        return create_dnai_fiber_result_package(
+            resolved,
+            output_dir=output_dir,
+        )
+
     raise ControlPlaneError(
         f"No package dispatch implementation for assay {assay_id!r}"
     )
@@ -399,6 +409,22 @@ def verify_registered_assay_result_package(
         )
 
         report = verify_assay_result_package(
+            resolved
+        )
+
+        report["assay_id"] = assay_id
+        report["runtime_adapter"] = (
+            runtime.package_adapter
+        )
+
+        return report
+
+    if assay_id == DNAI_ASSAY_ID:
+        from radiation_edge_ai.dna_fiber.reporting import (
+            verify_dnai_fiber_result_package,
+        )
+
+        report = verify_dnai_fiber_result_package(
             resolved
         )
 
