@@ -29,7 +29,26 @@ SCHEMA_VERSION = 1
 RECORD_TYPE = "dnai_fiber_measurement_transaction"
 ASSAY_ID = "dnai-fiber-v3"
 APPLICATION_ADAPTER = "dnai-tile-stitch-object-v1"
-BACKEND = "cpu-onnx"
+
+CPU_BACKEND = "cpu-onnx"
+KL720_BACKEND = "kl720"
+BACKEND = CPU_BACKEND
+
+EXPECTED_NEF_SHA256 = (
+    "4b3dfec9a61c99e186dd4b8482fa5b06"
+    "e6a4958f325ed4a0db0546f1dcab2bfc"
+)
+
+MODEL_SHA256_BY_BACKEND = {
+    CPU_BACKEND: EXPECTED_MODEL_SHA256,
+    KL720_BACKEND: EXPECTED_NEF_SHA256,
+}
+
+MODEL_SUFFIX_BY_BACKEND = {
+    CPU_BACKEND: ".onnx",
+    KL720_BACKEND: ".nef",
+}
+
 INPUT_MODE = "frozen-deployment-windows"
 
 
@@ -293,9 +312,18 @@ def validate_dnai_application_manifest(
             "DNAi application manifest has wrong adapter"
         )
 
-    if manifest.get("backend") != BACKEND:
+    backend = manifest.get(
+        "backend"
+    )
+
+    if backend not in MODEL_SHA256_BY_BACKEND:
         raise ControlPlaneError(
-            "DNAi v0.9 application supports only cpu-onnx"
+            "DNAi application backend must be one of: "
+            + ", ".join(
+                sorted(
+                    MODEL_SHA256_BY_BACKEND
+                )
+            )
         )
 
     if (
@@ -343,12 +371,37 @@ def validate_dnai_application_manifest(
             "DNAi validation-manifest artifact failed verification"
         )
 
+    expected_model_sha = (
+        MODEL_SHA256_BY_BACKEND[
+            backend
+        ]
+    )
+
     if (
         model.get("sha256")
-        != EXPECTED_MODEL_SHA256
+        != expected_model_sha
     ):
         raise ControlPlaneError(
-            "DNAi application model is not the frozen FP512 ONNX"
+            "DNAi application model SHA256 does not match "
+            f"the frozen {backend} model"
+        )
+
+    model_path = Path(
+        _required_text(
+            model.get("path"),
+            label="model path",
+        )
+    ).expanduser().resolve()
+
+    if (
+        model_path.suffix.lower()
+        != MODEL_SUFFIX_BY_BACKEND[
+            backend
+        ]
+    ):
+        raise ControlPlaneError(
+            "DNAi application model suffix does not match "
+            f"backend {backend!r}"
         )
 
     validation_path = Path(
@@ -605,6 +658,17 @@ def create_dnai_fiber_measurement_transaction(
             manifest_path
         )
     )
+
+    if (
+        application_manifest.get(
+            "backend"
+        )
+        != CPU_BACKEND
+    ):
+        raise ControlPlaneError(
+            "DNAi KL720 transaction creation is not enabled "
+            "until backend-aware physical field records are implemented"
+        )
 
     field_verification = (
         verify_dnai_fiber_field_record(

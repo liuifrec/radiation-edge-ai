@@ -68,6 +68,39 @@ def _required_runtime_python(
     return resolved
 
 
+def _validate_kl720_options(
+    *,
+    kl720_python: Optional[Path],  # noqa: UP045
+    kl720_port: Optional[int],  # noqa: UP045
+    kl720_timeout_ms: int,
+) -> None:
+    if kl720_python is not None:
+        resolved = (
+            kl720_python
+            .expanduser()
+            .resolve()
+        )
+
+        if not resolved.is_file():
+            raise ControlPlaneError(
+                "KL720 Python interpreter is not a readable file: "
+                f"{resolved}"
+            )
+
+    if (
+        kl720_port is not None
+        and kl720_port < 0
+    ):
+        raise ControlPlaneError(
+            "KL720 USB port must be non-negative"
+        )
+
+    if kl720_timeout_ms <= 0:
+        raise ControlPlaneError(
+            "KL720 timeout must be positive"
+        )
+
+
 def _required_mapping(
     value: object,
     *,
@@ -354,6 +387,9 @@ def execute_dnai_assay_manifest(
     *,
     output_dir: Path,
     onnx_python: Optional[Path] = None,  # noqa: UP045
+    kl720_python: Optional[Path] = None,  # noqa: UP045
+    kl720_port: Optional[int] = None,  # noqa: UP045
+    kl720_timeout_ms: int = 10000,
 ) -> dict[str, object]:
     """Execute one validated DNAi field application manifest."""
 
@@ -369,11 +405,32 @@ def execute_dnai_assay_manifest(
         )
     )
 
-    runtime_python = (
-        _required_runtime_python(
-            onnx_python
-        )
+    backend = manifest.get(
+        "backend"
     )
+
+    if backend == "cpu-onnx":
+        runtime_python = (
+            _required_runtime_python(
+                onnx_python
+            )
+        )
+    elif backend == "kl720":
+        _validate_kl720_options(
+            kl720_python=kl720_python,
+            kl720_port=kl720_port,
+            kl720_timeout_ms=kl720_timeout_ms,
+        )
+
+        raise ControlPlaneError(
+            "DNAi KL720 application contract is valid, but "
+            "physical field execution is not enabled yet"
+        )
+    else:
+        raise ControlPlaneError(
+            "Unsupported DNAi application backend: "
+            f"{backend!r}"
+        )
 
     root = (
         output_dir
