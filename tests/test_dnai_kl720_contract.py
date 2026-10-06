@@ -250,7 +250,7 @@ def test_kl720_manifest_rejects_wrong_model_hash(
         )
 
 
-def test_kl720_application_contract_fails_closed_before_hardware(
+def test_kl720_application_dispatches_physical_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -259,19 +259,277 @@ def test_kl720_application_contract_fails_closed_before_hardware(
         / "manifest.json"
     )
 
-    value = {
+    _write_json(
+        manifest_path,
+        {
+            "synthetic": True,
+        },
+    )
+
+    manifest = {
         "backend": "kl720",
     }
 
     monkeypatch.setattr(
         application,
         "validate_dnai_application_manifest",
-        lambda _path: value,
+        lambda _path: manifest,
+    )
+
+    scientific_python = (
+        tmp_path
+        / "scientific-python.exe"
+    )
+
+    scientific_python.write_bytes(
+        b"x"
     )
 
     kneron_python = (
         tmp_path
-        / "python.exe"
+        / "kneron-python.exe"
+    )
+
+    kneron_python.write_bytes(
+        b"x"
+    )
+
+    root = (
+        tmp_path
+        / "out"
+    )
+
+    field_path = (
+        root
+        / "fields"
+        / "df2-synthetic"
+        / "field_result.json"
+    )
+
+    transaction_path = (
+        root
+        / "transactions"
+        / "dt2-synthetic"
+        / "transaction_record.json"
+    )
+
+    _write_json(
+        field_path,
+        {
+            "field_id": (
+                "df2-synthetic"
+            ),
+            "counts": {
+                "n_windows": 9,
+                "n_fibers_valid": 14,
+            },
+            "measurements": {
+                "mean_valid_ratio": 1.0,
+            },
+            "scientific_scope": {
+                "kl720_hardware_access_performed": True,
+                "biological_fidelity_evaluated": False,
+            },
+        },
+    )
+
+    _write_json(
+        transaction_path,
+        {
+            "transaction_id": (
+                "dt2-synthetic"
+            ),
+            "scientific_scope": {
+                "field_record_verified": True,
+                "kl720_hardware_access_performed": True,
+                "biological_fidelity_evaluated": False,
+            },
+        },
+    )
+
+    monkeypatch.setattr(
+        application,
+        "_matching_existing_field_record",
+        lambda _root, _manifest: None,
+    )
+
+    calls: dict[str, object] = {}
+
+    def fake_worker(
+        manifest_value: dict[str, object],
+        *,
+        runtime_python: Path,
+        output_root: Path,
+        kl720_python: Optional[Path] = None,  # noqa: UP045
+        kl720_port: Optional[int] = None,  # noqa: UP045
+        kl720_timeout_ms: int = 10000,
+    ) -> Path:
+        calls["manifest"] = (
+            manifest_value
+        )
+        calls["runtime_python"] = (
+            runtime_python
+        )
+        calls["output_root"] = (
+            output_root
+        )
+        calls["kl720_python"] = (
+            kl720_python
+        )
+        calls["kl720_port"] = (
+            kl720_port
+        )
+        calls["kl720_timeout_ms"] = (
+            kl720_timeout_ms
+        )
+
+        return field_path
+
+    monkeypatch.setattr(
+        application,
+        "_run_field_worker",
+        fake_worker,
+    )
+
+    monkeypatch.setattr(
+        application,
+        "verify_dnai_fiber_physical_field_record",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+        },
+    )
+
+    monkeypatch.setattr(
+        application,
+        "create_dnai_fiber_physical_measurement_transaction",
+        lambda *_args, **_kwargs: (
+            transaction_path
+        ),
+    )
+
+    monkeypatch.setattr(
+        application,
+        "verify_dnai_fiber_physical_measurement_transaction",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+        },
+    )
+
+    def unexpected_v1(
+        *_args: object,
+        **_kwargs: object,
+    ) -> object:
+        raise AssertionError(
+            "KL720 application used the historical v1 path"
+        )
+
+    monkeypatch.setattr(
+        application,
+        "verify_dnai_fiber_field_record",
+        unexpected_v1,
+    )
+
+    monkeypatch.setattr(
+        application,
+        "create_dnai_fiber_measurement_transaction",
+        unexpected_v1,
+    )
+
+    monkeypatch.setattr(
+        application,
+        "verify_dnai_fiber_measurement_transaction",
+        unexpected_v1,
+    )
+
+    result = (
+        application.execute_dnai_assay_manifest(
+            manifest_path,
+            output_dir=root,
+            onnx_python=(
+                scientific_python
+            ),
+            kl720_python=(
+                kneron_python
+            ),
+            kl720_port=81,
+            kl720_timeout_ms=12345,
+        )
+    )
+
+    assert (
+        result[
+            "verification"
+        ]
+        == "PASS"
+    )
+
+    assert (
+        result[
+            "field_execution"
+        ]
+        == "executed"
+    )
+
+    assert (
+        result[
+            "ids"
+        ][
+            "field_id"
+        ]
+        == "df2-synthetic"
+    )
+
+    assert (
+        result[
+            "ids"
+        ][
+            "transaction_id"
+        ]
+        == "dt2-synthetic"
+    )
+
+    assert calls == {
+        "manifest": manifest,
+        "runtime_python": (
+            scientific_python.resolve()
+        ),
+        "output_root": (
+            root
+            / "fields"
+        ).resolve(),
+        "kl720_python": (
+            kneron_python
+        ),
+        "kl720_port": 81,
+        "kl720_timeout_ms": 12345,
+    }
+
+
+def test_kl720_application_requires_scientific_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest_path = (
+        tmp_path
+        / "manifest.json"
+    )
+
+    manifest_path.write_text(
+        "{}\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        application,
+        "validate_dnai_application_manifest",
+        lambda _path: {
+            "backend": "kl720",
+        },
+    )
+
+    kneron_python = (
+        tmp_path
+        / "kneron-python.exe"
     )
 
     kneron_python.write_bytes(
@@ -280,21 +538,20 @@ def test_kl720_application_contract_fails_closed_before_hardware(
 
     with pytest.raises(
         ControlPlaneError,
-        match=(
-            "physical field execution "
-            "is not enabled yet"
-        ),
+        match="--onnx-python",
     ):
-        application.execute_dnai_assay_manifest(
-            manifest_path,
-            output_dir=(
-                tmp_path / "out"
-            ),
-            kl720_python=(
-                kneron_python
-            ),
-            kl720_port=81,
-            kl720_timeout_ms=10000,
+        (
+            application.execute_dnai_assay_manifest(
+                manifest_path,
+                output_dir=(
+                    tmp_path
+                    / "out"
+                ),
+                kl720_python=(
+                    kneron_python
+                ),
+                kl720_port=81,
+            )
         )
 
 

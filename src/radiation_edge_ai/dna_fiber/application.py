@@ -26,10 +26,17 @@ from radiation_edge_ai.control import (
 from radiation_edge_ai.dna_fiber.field_record import (
     verify_dnai_fiber_field_record,
 )
+from radiation_edge_ai.dna_fiber.field_record_v2 import (
+    verify_dnai_fiber_physical_field_record,
+)
 from radiation_edge_ai.dna_fiber.transaction import (
     create_dnai_fiber_measurement_transaction,
     validate_dnai_application_manifest,
     verify_dnai_fiber_measurement_transaction,
+)
+from radiation_edge_ai.dna_fiber.transaction_v2 import (
+    create_dnai_fiber_physical_measurement_transaction,
+    verify_dnai_fiber_physical_measurement_transaction,
 )
 
 ASSAY_ID = "dnai-fiber-v3"
@@ -123,6 +130,30 @@ def _matching_existing_field_record(
     if not field_root.is_dir():
         return None
 
+    backend = manifest.get(
+        "backend"
+    )
+
+    if backend == "cpu-onnx":
+        field_pattern = (
+            "df1-*/field_result.json"
+        )
+        field_verifier = (
+            verify_dnai_fiber_field_record
+        )
+    elif backend == "kl720":
+        field_pattern = (
+            "df2-*/field_result.json"
+        )
+        field_verifier = (
+            verify_dnai_fiber_physical_field_record
+        )
+    else:
+        raise ControlPlaneError(
+            "Unsupported DNAi backend for field reuse: "
+            f"{backend!r}"
+        )
+
     model = _required_mapping(
         manifest.get("model"),
         label="model artifact",
@@ -144,12 +175,12 @@ def _matching_existing_field_record(
 
     for candidate in sorted(
         field_root.glob(
-            "df1-*/field_result.json"
+            field_pattern
         )
     ):
         try:
             verification = (
-                verify_dnai_fiber_field_record(
+                field_verifier(
                     candidate,
                     check_artifacts=True,
                 )
@@ -221,8 +252,29 @@ def _run_field_worker(
     *,
     runtime_python: Path,
     output_root: Path,
+    kl720_python: Optional[Path] = None,  # noqa: UP045
+    kl720_port: Optional[int] = None,  # noqa: UP045
+    kl720_timeout_ms: int = 10000,
 ) -> Path:
     """Launch the assay-specific worker in the external DNAi environment."""
+
+    backend = manifest.get(
+        "backend"
+    )
+
+    if backend == "cpu-onnx":
+        worker_module = (
+            "radiation_edge_ai.dna_fiber._field_worker"
+        )
+    elif backend == "kl720":
+        worker_module = (
+            "radiation_edge_ai.dna_fiber._physical_field_worker"
+        )
+    else:
+        raise ControlPlaneError(
+            "Unsupported DNAi backend for field worker: "
+            f"{backend!r}"
+        )
 
     model = _required_mapping(
         manifest.get("model"),
@@ -285,7 +337,7 @@ def _run_field_worker(
     command = [
         str(runtime_python),
         "-m",
-        "radiation_edge_ai.dna_fiber._field_worker",
+        worker_module,
         "--model",
         str(model_path),
         "--validation-manifest",
@@ -295,6 +347,36 @@ def _run_field_worker(
         "--output-root",
         str(output_root),
     ]
+
+    if backend == "kl720":
+        if kl720_python is not None:
+            command.extend(
+                [
+                    "--kl720-python",
+                    str(
+                        kl720_python
+                    ),
+                ]
+            )
+
+        if kl720_port is not None:
+            command.extend(
+                [
+                    "--kl720-port",
+                    str(
+                        kl720_port
+                    ),
+                ]
+            )
+
+        command.extend(
+            [
+                "--kl720-timeout-ms",
+                str(
+                    kl720_timeout_ms
+                ),
+            ]
+        )
 
     completed = subprocess.run(
         command,
@@ -416,15 +498,16 @@ def execute_dnai_assay_manifest(
             )
         )
     elif backend == "kl720":
+        runtime_python = (
+            _required_runtime_python(
+                onnx_python
+            )
+        )
+
         _validate_kl720_options(
             kl720_python=kl720_python,
             kl720_port=kl720_port,
             kl720_timeout_ms=kl720_timeout_ms,
-        )
-
-        raise ControlPlaneError(
-            "DNAi KL720 application contract is valid, but "
-            "physical field execution is not enabled yet"
         )
     else:
         raise ControlPlaneError(
@@ -454,47 +537,94 @@ def execute_dnai_assay_manifest(
     if field_record_path is None:
         field_execution = "executed"
 
-        field_record_path = (
-            _run_field_worker(
-                manifest,
-                runtime_python=runtime_python,
-                output_root=field_root,
+        if backend == "cpu-onnx":
+            field_record_path = (
+                _run_field_worker(
+                    manifest,
+                    runtime_python=runtime_python,
+                    output_root=field_root,
+                )
+            )
+        else:
+            field_record_path = (
+                _run_field_worker(
+                    manifest,
+                    runtime_python=runtime_python,
+                    output_root=field_root,
+                    kl720_python=(
+                        kl720_python
+                    ),
+                    kl720_port=(
+                        kl720_port
+                    ),
+                    kl720_timeout_ms=(
+                        kl720_timeout_ms
+                    ),
+                )
+            )
+
+    if backend == "cpu-onnx":
+        field_verification = (
+            verify_dnai_fiber_field_record(
+                field_record_path,
+                check_artifacts=True,
+            )
+        )
+    else:
+        field_verification = (
+            verify_dnai_fiber_physical_field_record(
+                field_record_path,
+                check_artifacts=True,
             )
         )
 
-    field_verification = (
-        verify_dnai_fiber_field_record(
-            field_record_path,
-            check_artifacts=True,
-        )
-    )
-
-    if not field_verification["ok"]:
+    if not field_verification.get(
+        "ok"
+    ):
         raise ControlPlaneError(
             "DNAi field record failed verification after execution/reuse"
         )
 
-    transaction_path = (
-        create_dnai_fiber_measurement_transaction(
-            resolved_manifest,
-            field_record_path,
-            output_dir=(
-                root
-                / "transactions"
-            ),
+    if backend == "cpu-onnx":
+        transaction_path = (
+            create_dnai_fiber_measurement_transaction(
+                resolved_manifest,
+                field_record_path,
+                output_dir=(
+                    root
+                    / "transactions"
+                ),
+            )
         )
-    )
 
-    transaction_verification = (
-        verify_dnai_fiber_measurement_transaction(
-            transaction_path,
-            check_artifacts=True,
+        transaction_verification = (
+            verify_dnai_fiber_measurement_transaction(
+                transaction_path,
+                check_artifacts=True,
+            )
         )
-    )
+    else:
+        transaction_path = (
+            create_dnai_fiber_physical_measurement_transaction(
+                resolved_manifest,
+                field_record_path,
+                output_dir=(
+                    root
+                    / "transactions"
+                ),
+            )
+        )
 
-    if not transaction_verification[
+        transaction_verification = (
+            verify_dnai_fiber_physical_measurement_transaction(
+                transaction_path,
+                check_artifacts=True,
+            )
+        )
+
+    if not transaction_verification.get(
         "ok"
-    ]:
+    ):
         raise ControlPlaneError(
             "DNAi measurement transaction failed verification"
         )
