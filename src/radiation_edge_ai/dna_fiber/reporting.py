@@ -29,12 +29,27 @@ from radiation_edge_ai.dna_fiber.transaction import (
     EXPECTED_TRANSACTION_SCOPE,
     verify_dnai_fiber_measurement_transaction,
 )
+from radiation_edge_ai.dna_fiber.transaction_v2 import (
+    EXPECTED_TRANSACTION_SCOPE as EXPECTED_PHYSICAL_TRANSACTION_SCOPE,
+    verify_dnai_fiber_physical_measurement_transaction,
+)
 
 PACKAGE_SCHEMA_VERSION = 1
 PACKAGE_RECORD_TYPE = "assay_result_package"
 PACKAGE_ADAPTER = "dnai-fiber-measurement-package-v1"
 ASSAY_ID = "dnai-fiber-v3"
 PACKAGE_ID_PREFIX = "drp1"
+
+
+def _scope_for_source_schema(schema_version: object) -> object:
+    """Select a frozen scientific-scope contract without bool-as-int aliases."""
+    if type(schema_version) is not int:
+        return None
+    if schema_version == 1:
+        return EXPECTED_TRANSACTION_SCOPE
+    if schema_version == 2:
+        return EXPECTED_PHYSICAL_TRANSACTION_SCOPE
+    return None
 
 
 def _require_mapping(
@@ -272,6 +287,13 @@ def _csv_row_count(
 def _source_components(
     transaction: Mapping[str, Any],
 ) -> dict[str, object]:
+    source_schema_version = transaction.get("schema_version")
+    expected_scope = _scope_for_source_schema(source_schema_version)
+    if expected_scope is None:
+        raise ControlPlaneError(
+            f"Unsupported DNAi transaction schema_version: {source_schema_version!r}"
+        )
+
     transaction_identity = (
         _require_mapping(
             transaction.get(
@@ -306,9 +328,7 @@ def _source_components(
         ),
     )
 
-    if dict(scope) != (
-        EXPECTED_TRANSACTION_SCOPE
-    ):
+    if dict(scope) != expected_scope:
         raise ControlPlaneError(
             "DNAi transaction scientific scope changed"
         )
@@ -427,6 +447,7 @@ def _source_components(
         )
 
     return {
+        "transaction_schema_version": source_schema_version,
         "transaction_identity": (
             dict(
                 transaction_identity
@@ -518,7 +539,7 @@ def _package_identity(
             "Source valid-fibers path is malformed"
         )
 
-    return {
+    identity = {
         "schema_version": (
             PACKAGE_SCHEMA_VERSION
         ),
@@ -611,6 +632,14 @@ def _package_identity(
         ),
     }
 
+    # Preserve the historical v1 identity (and drp1 hashes) byte-for-byte.
+    # Physical v2 provenance is an additive, identity-hashed extension.
+    if source.get("transaction_schema_version") == 2:
+        identity["source_transaction_schema_version"] = 2
+        identity["execution_backend"] = "kl720"
+
+    return identity
+
 
 def _identity_semantics_ok(
     identity: Mapping[str, Any],
@@ -621,9 +650,19 @@ def _identity_semantics_ok(
     measurements = identity.get(
         "measurements"
     )
+    source_version = identity.get("source_transaction_schema_version", 1)
+    expected_scope = _scope_for_source_schema(source_version)
+    if source_version == 1:
+        backend_binding_ok = "execution_backend" not in identity
+    elif source_version == 2:
+        backend_binding_ok = identity.get("execution_backend") == "kl720"
+    else:
+        backend_binding_ok = False
 
     if (
-        identity.get(
+        expected_scope is None
+        or not backend_binding_ok
+        or identity.get(
             "schema_version"
         )
         != PACKAGE_SCHEMA_VERSION
@@ -715,7 +754,7 @@ def _identity_semantics_ok(
         or identity.get(
             "source_scientific_scope"
         )
-        != EXPECTED_TRANSACTION_SCOPE
+        != expected_scope
     ):
         return False
 
@@ -973,6 +1012,12 @@ def _render_markdown(
         ),
     )
 
+    source_path_description = (
+        "frozen physical KL720 application path"
+        if scope.get("kl720_hardware_access_performed") is True
+        else "frozen floating FP512 application path"
+    )
+
     lines = [
         "# Radiation Edge AI DNAi assay result",
         "",
@@ -988,8 +1033,8 @@ def _render_markdown(
         "",
         (
             "The reported endpoint consists of post-processed DNA-fiber "
-            "objects and tract measurements reconstructed from the frozen "
-            "floating FP512 application path."
+            "objects and tract measurements reconstructed from the "
+            f"{source_path_description}."
         ),
         "",
         f"- Windows: {counts['n_windows']}",
@@ -1105,21 +1150,26 @@ def create_dnai_fiber_result_package(
             f"{source_path}"
         )
 
-    verification = (
-        verify_dnai_fiber_measurement_transaction(
-            source_path,
-            check_artifacts=True,
+    transaction = load_json_object(source_path)
+    source_version = transaction.get("schema_version")
+    if type(source_version) is not int:
+        raise ControlPlaneError(
+            f"Unsupported DNAi transaction schema_version: {source_version!r}"
         )
-    )
+    if source_version == 1:
+        verifier = verify_dnai_fiber_measurement_transaction
+    elif source_version == 2:
+        verifier = verify_dnai_fiber_physical_measurement_transaction
+    else:
+        raise ControlPlaneError(
+            f"Unsupported DNAi transaction schema_version: {source_version!r}"
+        )
 
-    if not verification["ok"]:
+    verification = verifier(source_path, check_artifacts=True)
+    if not verification.get("ok"):
         raise ControlPlaneError(
             "Source DNAi transaction failed full verification"
         )
-
-    transaction = load_json_object(
-        source_path
-    )
 
     source = _source_components(
         transaction
@@ -1655,14 +1705,14 @@ def verify_dnai_fiber_result_package(
             == row_count
         )
 
+        expected_scope = _scope_for_source_schema(
+            identity.get("source_transaction_schema_version", 1)
+        )
         scientific_scope_ok = bool(
-            result.get(
-                "scientific_scope"
-            )
-            == identity.get(
-                "source_scientific_scope"
-            )
-            == EXPECTED_TRANSACTION_SCOPE
+            expected_scope is not None
+            and result.get("scientific_scope")
+            == identity.get("source_scientific_scope")
+            == expected_scope
         )
 
         csv_binding_ok = bool(

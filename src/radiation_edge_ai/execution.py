@@ -741,23 +741,103 @@ def verify_target(path: Path, *, check_artifacts: bool = True) -> dict[str, obje
         )
 
     if value.get("record_type") == "dnai_fiber_field_record":
-        from radiation_edge_ai.dna_fiber.field_record import (
-            verify_dnai_fiber_field_record,
+        schema_version = value.get(
+            "schema_version"
         )
 
-        return verify_dnai_fiber_field_record(
-            target,
-            check_artifacts=check_artifacts,
+        if (
+            isinstance(
+                schema_version,
+                int,
+            )
+            and not isinstance(
+                schema_version,
+                bool,
+            )
+            and schema_version == 1
+        ):
+            from radiation_edge_ai.dna_fiber.field_record import (
+                verify_dnai_fiber_field_record,
+            )
+
+            return verify_dnai_fiber_field_record(
+                target,
+                check_artifacts=check_artifacts,
+            )
+
+        if (
+            isinstance(
+                schema_version,
+                int,
+            )
+            and not isinstance(
+                schema_version,
+                bool,
+            )
+            and schema_version == 2
+        ):
+            from radiation_edge_ai.dna_fiber.field_record_v2 import (
+                verify_dnai_fiber_physical_field_record,
+            )
+
+            return verify_dnai_fiber_physical_field_record(
+                target,
+                check_artifacts=check_artifacts,
+            )
+
+        raise ControlPlaneError(
+            "Unsupported DNAi fiber field record "
+            f"schema_version: {schema_version!r}"
         )
 
     if value.get("record_type") == "dnai_fiber_measurement_transaction":
-        from radiation_edge_ai.dna_fiber.transaction import (
-            verify_dnai_fiber_measurement_transaction,
+        schema_version = value.get(
+            "schema_version"
         )
 
-        return verify_dnai_fiber_measurement_transaction(
-            target,
-            check_artifacts=check_artifacts,
+        if (
+            isinstance(
+                schema_version,
+                int,
+            )
+            and not isinstance(
+                schema_version,
+                bool,
+            )
+            and schema_version == 1
+        ):
+            from radiation_edge_ai.dna_fiber.transaction import (
+                verify_dnai_fiber_measurement_transaction,
+            )
+
+            return verify_dnai_fiber_measurement_transaction(
+                target,
+                check_artifacts=check_artifacts,
+            )
+
+        if (
+            isinstance(
+                schema_version,
+                int,
+            )
+            and not isinstance(
+                schema_version,
+                bool,
+            )
+            and schema_version == 2
+        ):
+            from radiation_edge_ai.dna_fiber.transaction_v2 import (
+                verify_dnai_fiber_physical_measurement_transaction,
+            )
+
+            return verify_dnai_fiber_physical_measurement_transaction(
+                target,
+                check_artifacts=check_artifacts,
+            )
+
+        raise ControlPlaneError(
+            "Unsupported DNAi fiber measurement transaction "
+            f"schema_version: {schema_version!r}"
         )
 
     if value.get("record_type") == "assay_result_package":

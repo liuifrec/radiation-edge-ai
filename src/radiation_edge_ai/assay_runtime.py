@@ -240,6 +240,9 @@ def execute_registered_assay_manifest(
     *,
     output_dir: Path,
     onnx_python: Optional[Path] = None,  # noqa: UP045
+    kl720_python: Optional[Path] = None,  # noqa: UP045
+    kl720_port: Optional[int] = None,  # noqa: UP045
+    kl720_timeout_ms: int = 10000,
 ) -> dict[str, object]:
     """Dispatch one manifest to its registered assay application adapter."""
 
@@ -286,6 +289,9 @@ def execute_registered_assay_manifest(
             manifest_path,
             output_dir=output_dir,
             onnx_python=onnx_python,
+            kl720_python=kl720_python,
+            kl720_port=kl720_port,
+            kl720_timeout_ms=kl720_timeout_ms,
         )
 
         if summary.get("assay_id") != assay_id:

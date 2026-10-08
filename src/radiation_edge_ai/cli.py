@@ -167,6 +167,19 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
     )
     assay_run.add_argument(
+        "--kl720-python",
+        type=Path,
+    )
+    assay_run.add_argument(
+        "--kl720-port",
+        type=int,
+    )
+    assay_run.add_argument(
+        "--kl720-timeout-ms",
+        type=int,
+        default=10000,
+    )
+    assay_run.add_argument(
         "--json",
         action="store_true",
     )
@@ -314,6 +327,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                 args.manifest,
                 output_dir=args.output_dir,
                 onnx_python=args.onnx_python,
+                kl720_python=args.kl720_python,
+                kl720_port=args.kl720_port,
+                kl720_timeout_ms=args.kl720_timeout_ms,
             )
 
             if args.json:

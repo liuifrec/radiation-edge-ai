@@ -173,10 +173,16 @@ def test_dnai_manifest_dispatches_application_adapter(
         *,
         output_dir: Path,
         onnx_python: Optional[Path] = None,  # noqa: UP045
+        kl720_python: Optional[Path] = None,  # noqa: UP045
+        kl720_port: Optional[int] = None,  # noqa: UP045
+        kl720_timeout_ms: int = 10000,
     ) -> dict[str, object]:
         calls["manifest"] = manifest_path
         calls["output_dir"] = output_dir
         calls["onnx_python"] = onnx_python
+        calls["kl720_python"] = kl720_python
+        calls["kl720_port"] = kl720_port
+        calls["kl720_timeout_ms"] = kl720_timeout_ms
 
         return {
             "kind": "assay_run_summary",
@@ -203,6 +209,9 @@ def test_dnai_manifest_dispatches_application_adapter(
         "manifest": manifest,
         "output_dir": output_dir,
         "onnx_python": onnx_python,
+        "kl720_python": None,
+        "kl720_port": None,
+        "kl720_timeout_ms": 10000,
     }
 
 def test_unknown_manifest_assay_is_rejected(
