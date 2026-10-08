@@ -1,6 +1,6 @@
 # Radiation Edge AI
 
-**Biologically faithful INT8 edge AI for quantitative radiation microscopy.**
+**Provenance-aware offline edge AI for quantitative radiation microscopy.** Biological fidelity must be evaluated per assay rather than inferred from deployment or pixel-level accuracy.
 
 `radiation-edge-ai` develops and evaluates compact neural-network inference pipelines for the Kneron KL720 NPU, with the central question:
 
@@ -16,7 +16,7 @@ A modest loss in Dice, IoU, F1, or detection sensitivity may be acceptable if th
 
 ## Tier I: Radiation Edge Phenotyping
 
-The initial proof-of-concept portfolio contains three complementary assays:
+The long-term portfolio has three complementary assay targets; the current offline demonstrator implements NASA 53BP1 and DNA-fiber:
 
 | Track | Biological axis | Edge-AI task | Primary biological outputs |
 | --- | --- | --- | --- |
@@ -73,26 +73,24 @@ The final inference pipeline should run on an ordinary PC without a CUDA install
 
 ```text
 radiation-edge-ai/
+|-- .github/workflows/ci.yml
 |-- docs/
-|   |-- PROJECT_CHARTER.md
-|   |-- BIOLOGICAL_FIDELITY.md
-|   `-- DATA_SOURCES.md
+|-- manuscript/OUTLINE.md
+|-- scripts/windows/
 |-- src/radiation_edge_ai/
-|   |-- core/
-|   |-- gamma_foci/
-|   |-- micronucleus/
-|   `-- dna_fiber/
-|-- scripts/
-|-- benchmarks/
-|-- tests/
-`-- manuscript/
-    |-- OUTLINE.md
-    `-- FIGURE_PLAN.md
+|   |-- assay_runtime.py
+|   |-- execution.py
+|   |-- dna_fiber/
+|   |-- nasa_bps/
+|   `-- hardware/
+`-- tests/
 ```
 
-Large microscopy datasets, proprietary material, model binaries, and KL720 build artifacts are **not** committed to Git. Public datasets should be obtained through versioned manifests/download instructions with source provenance and checksums where practical.
+Large microscopy datasets, proprietary materials, model binaries, and KL720
+build artifacts are not committed to Git. Versioned upstream sources and
+frozen checksum evidence are documented where redistribution is permitted.
 
-## Milestones
+## Original roadmap (historical; not the v0.11 release status)
 
 - **v0.1 — Reference baselines:** reproduce/freeze reference outputs for DNA fiber, gamma-H2AX/53BP1, and micronucleus public datasets.
 - **v0.2 — Compact students:** establish KL720-compatible lightweight FP32 models.
@@ -128,10 +126,23 @@ The project is designed first as a **general biological-methods contribution**, 
 
 Publication venue will be chosen after the final validation scope is frozen. A public-data/software-only package is being developed as a reproducible methods/software contribution; sufficiently strong independent radiation-biology validation could support reassessment for a field-specific methods venue.
 
-## Status
+## Status: verified v0.11 offline two-assay demonstrator
 
-The NASA BPS 53BP1 R1 v2 track has a frozen physical-KL720 validation record. DNA-fiber has completed physical KL720 deployment characterization and post-hoc sensitivity auditing. Micronucleus remains a possible future assay rather than a prerequisite for the current two-assay offline demonstrator.
+- **NASA BPS 53BP1**: frozen physical KL720 holdout passed the original
+  predeclared biological-fidelity gates (within the documented scope).
+- **DNA-fiber**: physical nine-window KL720 field inference, stitching, fiber
+  reconstruction, backend-aware `df2`/`dt2` provenance, and relocatable `drp1`
+  reporting have been verified. On one frozen field, foreground Dice versus
+  floating FP512 was `0.8653`; valid-fiber measurement correspondence was
+  limited. **This is not DNAi biological-fidelity validation.**
+- **Software**: public schema-aware verification, export integrity and tamper
+  detection, and GitHub Actions CI for Python 3.9 and 3.11 (131 tests per
+  Python version) have passed.
+- **Future scope**: micronucleus and broader independent DNA-fiber validation
+  are separate follow-up milestones.
+
+See [v0.11 evidence and claim boundaries](docs/UNIFIED_KL720_V0_11_RELEASE.md).
 
 ## License
 
-A software license will be pinned before the first distributable release. Third-party datasets, model weights, and upstream code remain subject to their original licenses and terms.
+Source code is licensed under BSD-3-Clause (see `LICENSE`). Third-party datasets, model weights, and upstream code remain subject to their original licenses and terms.
