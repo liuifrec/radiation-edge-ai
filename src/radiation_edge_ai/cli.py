@@ -46,6 +46,7 @@ from radiation_edge_ai.nasa_predictions import (
 from radiation_edge_ai.transaction import (
     execute_batch_measurement_transaction,
 )
+from radiation_edge_ai.verification_collection import verify_collection
 
 
 def _dump_json(value: object) -> None:
@@ -279,6 +280,13 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("plan_path", type=Path)
     verify.add_argument("--no-artifacts", action="store_true")
     verify.add_argument("--json", action="store_true")
+
+    verify_many = subparsers.add_parser(
+        "verify-many",
+        help="read-only full-integrity verification of multiple artifacts",
+    )
+    verify_many.add_argument("paths", nargs="+", type=Path)
+    verify_many.add_argument("--json", action="store_true")
     return parser
 
 
@@ -616,6 +624,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
             )
             print(report_path)
             return 0
+
+        if args.command == "verify-many":
+            report = verify_collection(args.paths)
+            if args.json:
+                _dump_json(report)
+            else:
+                for item in report["items"]:
+                    status = "PASS" if item["ok"] else "FAIL"
+                    print(f"{status}: {item['kind']} {item['path']}")
+                    if "error" in item:
+                        print(f"  error: {item['error']}")
+                status = "PASS" if report["ok"] else "FAIL"
+                print(
+                    f"verification: {status} "
+                    f"({report['n_pass']}/{report['n_targets']})"
+                )
+            return 0 if report["ok"] else 3
 
         if args.command == "verify":
             report = verify_target(
