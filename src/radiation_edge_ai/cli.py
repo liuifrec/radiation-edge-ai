@@ -26,6 +26,7 @@ from radiation_edge_ai.control import (
     get_assay,
     list_assays,
 )
+from radiation_edge_ai.dnai_paired_fields import compare_dnai_fields
 from radiation_edge_ai.execution import execute_run_plan, verify_target
 from radiation_edge_ai.measurement import (
     ASSAY_ID as MEASUREMENT_ASSAY_ID,
@@ -287,6 +288,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify_many.add_argument("paths", nargs="+", type=Path)
     verify_many.add_argument("--json", action="store_true")
+
+    paired = subparsers.add_parser(
+        "compare-dnai-fields",
+        help="read-only comparison of fully verified FP512 and KL720 DNAi fields",
+    )
+    paired.add_argument("--fp512", type=Path, required=True)
+    paired.add_argument("--kl720", type=Path, required=True)
+    paired.add_argument("--json", action="store_true")
     return parser
 
 
@@ -623,6 +632,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                 output_dir=args.output_dir,
             )
             print(report_path)
+            return 0
+
+        if args.command == "compare-dnai-fields":
+            report = compare_dnai_fields(args.fp512, args.kl720)
+            if args.json:
+                _dump_json(report)
+            else:
+                pixels = report["segmentation_metrics"]
+                proxy = report["component_proxy_metrics"]
+                scope = report["shared_input"]
+                print("DNAi FP512 / physical KL720 paired-field audit")
+                print("sample: {} / image {}".format(scope["sample_id"], scope["image_index"]))
+                print("changed segmentation pixels: {}".format(pixels["changed_pixels"]))
+                print("foreground Dice: {}".format(pixels["foreground_dice"]))
+                print("8-connected component proxies: {} FP512 / {} KL720".format(
+                    proxy["n_fp512_components"], proxy["n_kl720_components"]
+                ))
+                print("Component proxies are not DNA-fiber identities")
+                print("Biological equivalence evaluated: NO")
             return 0
 
         if args.command == "verify-many":
