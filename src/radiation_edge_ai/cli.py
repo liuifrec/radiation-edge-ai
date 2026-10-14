@@ -26,6 +26,7 @@ from radiation_edge_ai.control import (
     get_assay,
     list_assays,
 )
+from radiation_edge_ai.dnai_fiber_instances import run_scientific_fiber_worker
 from radiation_edge_ai.dnai_paired_fields import compare_dnai_fields
 from radiation_edge_ai.execution import execute_run_plan, verify_target
 from radiation_edge_ai.measurement import (
@@ -296,6 +297,15 @@ def build_parser() -> argparse.ArgumentParser:
     paired.add_argument("--fp512", type=Path, required=True)
     paired.add_argument("--kl720", type=Path, required=True)
     paired.add_argument("--json", action="store_true")
+
+    instance = subparsers.add_parser(
+        "compare-dnai-fibers",
+        help="read-only verified matching of reconstructed valid DNAi fibers",
+    )
+    instance.add_argument("--fp512", type=Path, required=True)
+    instance.add_argument("--kl720", type=Path, required=True)
+    instance.add_argument("--scientific-python", type=Path, required=True)
+    instance.add_argument("--json", action="store_true")
     return parser
 
 
@@ -632,6 +642,33 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                 output_dir=args.output_dir,
             )
             print(report_path)
+            return 0
+
+        if args.command == "compare-dnai-fibers":
+            report = run_scientific_fiber_worker(
+                args.fp512, args.kl720, scientific_python=args.scientific_python
+            )
+            if args.json:
+                _dump_json(report)
+            else:
+                summary = report["primary"]["summary"]
+                decomp = report["primary"]["length_decomposition_um"]
+                print("Verified DNAi valid-fiber correspondence (FP512 / KL720)")
+                print("Valid-fiber bbox matches: {}".format(summary["n_matched"]))
+                print("FP512 unmatched: {}; KL720 unmatched: {}".format(
+                    summary["n_reference_unmatched"], summary["n_candidate_unmatched"]
+                ))
+                print("Fiber matching F1: {}".format(summary["f1"]))
+                print("Matched length MAE (um): {}".format(
+                    report["primary"]["matched_length_mae_um"]
+                ))
+                print("Matched ratio MAE: {}".format(
+                    report["primary"]["matched_ratio_mae"]
+                ))
+                print("Total KL720 minus FP512 valid length (um): {}".format(
+                    decomp["kl720_minus_fp512_total"]
+                ))
+                print("Reconstructed-fiber correspondence is not biological identity")
             return 0
 
         if args.command == "compare-dnai-fields":
