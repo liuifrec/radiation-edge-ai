@@ -219,23 +219,23 @@ and pre-existing scientific conclusions remain unchanged.
 
 ## Final detailed acceptance of permanent audit (2026-10-16)
 
-The investigator supplied the in-memory \`$Audit\` inspection outputs from
+The investigator supplied the in-memory `$Audit` inspection outputs from
 the same successful read-only permanent-command execution. No additional
 inference or mutation of frozen evidence was required. This section completes
 the outstanding manual inspection of the class-specific
-\`p(class)-p(background)\` margin **deltas** and length decomposition. The
+`p(class)-p(background)` margin **deltas** and length decomposition. The
 margin *means, medians, and nonpositive fractions* for each runtime remain
 available in full JSON but are not reproduced in the console excerpt;
 the displayed signed class-margin deltas are verified below.
 
 ### Local class losses and probability shifts
 
-Classes: **1 = red**, **2 = green**. \`support\` is the number of reconstructed
-source-fiber pixels of that class; \`raw\` and \`final\` count same-class
+Classes: **1 = red**, **2 = green**. `support` is the number of reconstructed
+source-fiber pixels of that class; `raw` and `final` count same-class
 pixels at those **fixed coordinates** in the opposite runtime's argmax and
 saved argmax+3×3 dilation masks. A count of zero is local, not evidence
 of a biologically absent fiber. Margin delta =
-mean(\`p(class)-p(background)\` in KL720) minus the same in FP512,
+mean(`p(class)-p(background)` in KL720) minus the same in FP512,
 measured on the source-fiber's own class pixels.
 
 | Source fiber | Class | Source support | Opposite raw same class | Opposite final same class | No class anywhere in padded ROI | KL720 - FP512 margin delta |
@@ -281,7 +281,7 @@ overlapping-window seam locations.
 | Matched length MAE | 0.3187430143001842 |
 | Exact length decomposition reconciled | true |
 
-\`+1.2107821048680236 + 1.82 - 45.95111683143651 = -42.920334726568484 um\`
+`+1.2107821048680236 + 1.82 - 45.95111683143651 = -42.920334726568484 um`
 (up to floating-point rounding). Primary matched valid fibers **11**,
 unmatched **3 FP512 / 1 KL720**; matching F1 **0.8461538461538461**.
 The original greedy bbox-IoU threshold remains **0.5**.
