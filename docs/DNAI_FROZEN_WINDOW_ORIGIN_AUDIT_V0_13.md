@@ -12,9 +12,9 @@ development field**, not a new independent biological validation or a claim
 that a particular model component caused the discrepancy.
 
 **Important:** Both v0.9 FP512 and v0.11 physical KL720 field records contain
-nine source-bound raw float32 \`.npy\` logit artifacts. Each is linked to one of
+nine source-bound raw float32 `.npy` logit artifacts. Each is linked to one of
 the **same nine frozen normalized inputs**, with original SHA256, size and
-window position. Their saved stitched probability \`.npz\` files are also
+window position. Their saved stitched probability `.npz` files are also
 source-bound. The code does not load/run the ONNX model, touch the KL720,
 regenerate inference, calibrate, or alter segmentation/matching.
 
@@ -29,18 +29,18 @@ regenerate inference, calibrate, or alter segmentation/matching.
 3. Load all 18 source-bound raw logits (9 FP512 + 9 KL720), check each SHA256,
    byte size, shape, dtype and finiteness. Softmax with the frozen float64
    intermediate / float32 output semantics.
-4. Use the original MONAI \`compute_importance_map\`, \`gaussian\` mode,
-   \`sigma_scale=0.125\`, 512x512, CPU float32. Accumulate weighted
-   probabilities in float64 in **ascending frozen window order**, normalize
+4. Use the original MONAI `compute_importance_map`, `gaussian` mode,
+   `sigma_scale=0.125`, 512x512, CPU float32. Multiply float32 probabilities by float32 weights **before**
+   adding into a float64 accumulator in **ascending frozen window order**, normalize
    and cast to float32, exactly as the historical pipeline did.
 5. **Fail closed** if the replay disagrees with either saved stitched
-   probability \`.npz\` by more than the *predeclared numeric tolerance*
+   probability `.npz` by more than the *predeclared numeric tolerance*
    **5e-7 maximum absolute probability error**. This tolerance is a
    numerical replay safeguard, not a biological acceptance threshold.
 6. On every previously reconstructed valid fiber (matched and unmatched),
    use the fiber's **own red/green support pixels** to measure all covering
    saved windows. For each class, compare the signed
-   \`p(class)-p(background)\` margin between KL720 and FP512 **before**
+   `p(class)-p(background)` margin between KL720 and FP512 **before**
    stitching. Record the coverage count (1/2/4 windows), each window's
    support count, mean signed delta, fraction negative, and its mean
    normalized Gaussian-weight contribution.
@@ -48,7 +48,7 @@ regenerate inference, calibrate, or alter segmentation/matching.
    frozen stitched margin difference on every sampled source pixel
    (predeclared maximum absolute residual **2e-6**). The algebra is:
 
-   \`Δmargin_stitched(p) = Σw weight_w(p) * Δmargin_window_w(p) / Σw weight_w(p)\`
+   `Δmargin_stitched(p) = Σw weight_w(p) * Δmargin_window_w(p) / Σw weight_w(p)`
 
    where weights are identical across runtimes. This is an identity, not a
    counterfactual or causal attribution.
@@ -69,10 +69,10 @@ padding, NPU inference, or border handling as the cause.
 
 ## Windows PowerShell: actual paired fields
 
-From the active project \`.venv\` in
-\`C:\Users\yul03\Projects\radiation-edge-ai\`:
+From the active project `.venv` in
+`C:\Users\yul03\Projects\radiation-edge-ai`:
 
-\`\`\`powershell
+```powershell
 Set-Location 'C:\Users\yul03\Projects\radiation-edge-ai'
 git status --short
 git fetch origin
@@ -150,10 +150,10 @@ foreach ($side in @('fp512_source','kl720_source')) {
         }
     }
 }
-\`\`\`
+```
 
 No files need to be generated in the frozen evidence directories.
-The complete report is retained in the in-memory \`$Window\` object.
+The complete report is retained in the in-memory `$Window` object.
 
 ## Predeclared stop/interpretation criteria
 
