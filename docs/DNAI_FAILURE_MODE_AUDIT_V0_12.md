@@ -162,15 +162,11 @@ the FP512 field. Dilation increased surviving FP512-source support foreground
 retention for IDs 15 and 17, without restoring primary reconstructed-fiber
 correspondence at the unchanged IoU threshold.
 
-**Important reporting distinction:** The console default object formatting
-truncated the detailed KL720 group, KL720 per-class disappearance totals,
-individual color-specific metrics and probability-margin tables. Thus this
-entry records the **confirmed core reproducibility and displayed
-descriptive results**, not independent manual review of every per-class
-probability margin. The earlier corrected exploratory v2 margin diagnostic
-passed separately. The historical matched length/ratio results are in the
-preceding v0.12 correspondence record and were not printed from the new
-audit in this acceptance console capture.
+**Reporting note for this initial console capture:** PowerShell abbreviated
+nested objects, so that output did not yet display full class margins or
+length decomposition. The subsequently supplied detailed inspection **does**
+verify them; see *Final detailed acceptance* below. The initial checkpoint
+is retained here as a chronological, read-only audit trail.
 
 To inspect the remaining fields without rerunning the audit, reuse the
 in-memory `$Audit` object from the successful session:
@@ -219,6 +215,93 @@ overlapping-window, stitching, image padding, or quantization causation.
 There is no independent per-window ablation, causal intervention or
 multi-image biological-fidelity analysis here. The frozen validations
 and pre-existing scientific conclusions remain unchanged.
+
+
+## Final detailed acceptance of permanent audit (2026-10-16)
+
+The investigator supplied the in-memory \`$Audit\` inspection outputs from
+the same successful read-only permanent-command execution. No additional
+inference or mutation of frozen evidence was required. This section completes
+the outstanding manual inspection of the class-specific
+\`p(class)-p(background)\` margin **deltas** and length decomposition. The
+margin *means, medians, and nonpositive fractions* for each runtime remain
+available in full JSON but are not reproduced in the console excerpt;
+the displayed signed class-margin deltas are verified below.
+
+### Local class losses and probability shifts
+
+Classes: **1 = red**, **2 = green**. \`support\` is the number of reconstructed
+source-fiber pixels of that class; \`raw\` and \`final\` count same-class
+pixels at those **fixed coordinates** in the opposite runtime's argmax and
+saved argmax+3×3 dilation masks. A count of zero is local, not evidence
+of a biologically absent fiber. Margin delta =
+mean(\`p(class)-p(background)\` in KL720) minus the same in FP512,
+measured on the source-fiber's own class pixels.
+
+| Source fiber | Class | Source support | Opposite raw same class | Opposite final same class | No class anywhere in padded ROI | KL720 - FP512 margin delta |
+| --- | ---: | ---: | ---: | ---: | :---: | ---: |
+| FP512 #1 | red (1) | 29 | 0 | 0 | yes | -1.1332696307930243 |
+| FP512 #1 | green (2) | 7 | 0 | 0 | yes | -1.286643013507793 |
+| FP512 #15 | red (1) | 39 | 26 | 31 | no | -0.39372232610073227 |
+| FP512 #15 | green (2) | 16 | 0 | 0 | yes | -1.2437842316867318 |
+| FP512 #17 | red (1) | 22 | 0 | 1 | no | -1.4313522491985085 |
+| FP512 #17 | green (2) | 22 | 11 | 18 | no | -0.6369702007558028 |
+| KL720 #19 | red (1) | 5 | 0 | 0 | yes | +0.8764627280645072 |
+| KL720 #19 | green (2) | 3 | 0 | 0 | yes | +0.8450821148386846 |
+
+After dilation, **3/6** tested FP512-source classes have zero same-class
+pixels both on fixed support and in their padded ROIs (#1 red, #1 green,
+#15 green). For #17 red, raw same-class retention is zero, whereas dilation
+leaves **one of 22** red support pixels (not complete disappearance).
+The green class is partially retained in #17, and the red class in #15.
+Both KL720-only #19 classes have zero FP512 retention on the source-fiber
+coordinates and in the padded ROI (**2/2** tested source classes).
+All six FP512-source class margin deltas are negative. Both KL720-only
+#19 class deltas are positive, as expected for a KL720-source addition.
+Those signed shifts are descriptive and do **not** identify causal inference
+or reconstruction mechanisms.
+
+The fixed near-image-boundary association remains **3/3 unmatched** FP512
+versus **0/11 matched** FP512 with minimum reconstructed-bbox edge distance
+<=32 px. Individual unmatched FP512 distances: #1 **0 px**,
+#15 **22 px**, #17 **0 px**. KL720 unmatched #19 is **92 px**
+from the image edge. These are *image* boundaries, not demonstrated
+overlapping-window seam locations.
+
+### Exact historical length reconciliation
+
+| Frozen metric | Value (um unless stated otherwise) |
+| --- | ---: |
+| FP512 valid-fiber length total | 229.1400257414643 |
+| KL720 valid-fiber length total | 186.21969101489583 |
+| Matched-fiber net KL720 minus FP512 | +1.2107821048680236 |
+| Unmatched FP512 length | 45.95111683143651 |
+| Unmatched KL720 length | 1.82 |
+| Overall KL720 minus FP512 | -42.920334726568484 |
+| Matched length MAE | 0.3187430143001842 |
+| Exact length decomposition reconciled | true |
+
+\`+1.2107821048680236 + 1.82 - 45.95111683143651 = -42.920334726568484 um\`
+(up to floating-point rounding). Primary matched valid fibers **11**,
+unmatched **3 FP512 / 1 KL720**; matching F1 **0.8461538461538461**.
+The original greedy bbox-IoU threshold remains **0.5**.
+
+### Acceptance decision and remaining scope
+
+**Permanent read-only audit acceptance: PASS for this pre-existing
+development field.** This covers full local synthetic tests (180 passed),
+cross-version CI, source-record checksums unchanged before/after execution,
+both exact DNAi morphology replays, unchanged historical fiber matching,
+source-fiber color-loss/foreground and signed margin-delta diagnostics,
+descriptive boundary grouping, and exact length decomposition.
+
+**Not established:** biological fiber absence/identity, causal contribution
+of quantization, overlapping-window stitching, inference precision,
+image padding or boundary handling; performance on independent fields;
+radiation effect; generalizable biological fidelity or statistical
+equivalence. The historical validation records remain authoritative and
+unchanged. No new model, inference, tuning, or acceptance thresholds
+were introduced.
 
 ## Synthetic tests
 
