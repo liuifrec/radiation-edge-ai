@@ -150,8 +150,11 @@ def _replay_field_windows(
             raise ControlPlaneError("Frozen window input binding differs from shared tensor")
         logits = _verified_window_output(record)
         p = _softmax_frozen(logits)[0]
+        # Historical NumPy semantics: float32 * float32 is rounded to
+        # float32 BEFORE the product is added to the float64 accumulator.
+        # Multiplying float64-by-float32 here would subtly change the replay.
         stitched_num[:, y:y + TILE, x:x + TILE] += (
-            p.astype(np.float64, copy=False) * importance[None, :, :]
+            p * importance[None, :, :]
         )
         stitched_den[y:y + TILE, x:x + TILE] += importance
         entries.append({
