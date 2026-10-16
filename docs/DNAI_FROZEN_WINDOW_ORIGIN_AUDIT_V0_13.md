@@ -100,11 +100,80 @@ session. Leave all model files, field records, frozen .npy tensors, and
 saved .npz probabilities untouched. If disk free space is low on D:
 as well, stop and resolve storage before retrying.
 
-The pasted console capture ends after the `audit-dnai-window-origin`
-command is issued; it does **not** include that command's exit status,
-replayed-probability results or per-fiber window summaries. Do not
-interpret that incomplete capture as a pass or failure of the new
-scientific worker.
+The **initial** pasted console capture ended after the `audit-dnai-window-origin`
+command was issued. Its output was not included in that first capture.
+The later console capture **does** verify successful execution and both exact
+replays. See the follow-up checkpoint below; retain this historical incident
+as a record of how the temporary-storage problem was diagnosed.
+
+## Follow-up Windows acceptance checkpoint (2026-10-16)
+
+The investigator confirmed that **C: has only 0.14 GiB free** whereas **D:
+has 223.84 GiB free**. This strongly supports insufficient temporary storage
+as the cause of seven earlier NumPy fixture-write failures; it is not a
+scientific algorithm regression. The active PowerShell session was changed
+to use a dedicated `D:\radiation-edge-ai-data\scratch\pytest-temp-v013`
+scratch path for `TEMP`, `TMP` and `pytest --basetemp`. With no code
+modification, the complete local regression **passed 191 tests in 19.26 s**.
+
+### Frozen-window replay: confirmed success
+
+The already-launched `radedge audit-dnai-window-origin` process exited
+successfully, and its full JSON parsed as `$Window`. The printed results
+confirm exact bitwise replay of the two saved 1024×1024 stitched arrays
+from all 18 bound cached 512×512 logits (nine per runtime):
+
+| Replay gate | FP512 | Physical KL720 |
+| --- | ---: | ---: |
+| Max absolute stitched-probability error | 0.0 | 0.0 |
+| Bitwise identical to saved NPZ | true | true |
+| Shared numerical acceptance threshold | 5e-7 | 5e-7 |
+
+Signed class-margin residual limit remains predeclared at 2e-6; the
+worker returned `both_replays_passed=True` and would fail closed on a
+class-margin decomposition mismatch. The individual per-class residual
+values have **not yet been printed** in the supplied console output.
+
+Historical primary matching remained **14 FP512 / 12 KL720 valid**,
+**11 matched**, **3 FP512 unmatched / 1 KL720 unmatched**,
+precision 0.9166666666666666, recall 0.7857142857142857,
+F1 0.8461538461538461. No threshold, reconstruction, or scientific
+conclusion changed.
+
+### Saved prediction differences before stitching
+
+| Window index | FP512–KL720 pre-stitch probability MAE | Argmax agreement |
+| ---: | ---: | ---: |
+| 0 | 0.003144088102389963 | 0.9992523193359375 |
+| 1 | 0.0063896423762793775 | 0.9998321533203125 |
+| 2 | 0.01054447550657732 | 0.9998435974121094 |
+| 3 | 0.0015880196696566882 | 0.9991950988769531 |
+| 4 | 0.0015267053433933961 | 0.9992828369140625 |
+| 5 | 0.0027670467492700093 | 0.9995956420898438 |
+| 6 | 0.0025779898114368636 | 0.9979743957519531 |
+| 7 | 0.0012184101969679574 | 0.9996147155761719 |
+| 8 | 0.0015864273307085637 | 0.9998283386230469 |
+
+Window 2 has the greatest *average* probability difference, while
+window 6 has the lowest overall raw-argmax agreement. Both precede
+stitching. This demonstrates that the two sets of frozen predictions
+are not identical *before* applying the common Gaussian weighting.
+Whole-window aggregates **cannot** establish which saved windows
+explain FP512 fiber IDs 1, 15, 17 or KL720 ID 19; this requires
+the per-source-fiber class coverage/contribution inspection below.
+
+**Status:** local testing PASS; source-bound full replay PASS;
+historical matching PASS; **fiber-specific internal-window proximity
+and per-window contribution interpretation still pending**.
+
+Source JSON and artifact verification is performed inside the worker
+at the start and end; the investigator's independent Windows-side
+SHA256 comparisons against the report have not yet been shown.
+Do not merge PR #19 before confirming the remaining specific evidence.
+
+All results are descriptive. Neither an image-boundary association
+nor deterministic Gaussian margin decomposition establishes the
+cause of the original FP512/KL720 inference differences.
 
 ## Windows PowerShell: actual paired fields
 
