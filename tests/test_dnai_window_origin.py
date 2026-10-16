@@ -113,8 +113,8 @@ def test_paired_window_swapping_and_uncovered_support_rejected() -> None:
         )
     with pytest.raises(ControlPlaneError, match="not covered"):
         origin._fixed_support_margin(
-            fp, kl, fp_saved, kl_saved, weights,
-            np.array([1]), np.array([6]), 1, seam_x=[2], seam_y=[],
+            fp[:1], kl[:1], fp_saved, kl_saved, weights,
+            np.array([1]), np.array([5]), 1, seam_x=[2], seam_y=[],
         )
 
 
@@ -159,7 +159,7 @@ def test_frozen_window_bound_sha256_and_decoder_fail_closed(tmp_path: Path) -> N
         origin._verified_window_output(meta)
     meta["output"]["size_bytes"] = len(data) + 6
     meta["output"]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-    with pytest.raises(ControlPlaneError, match="tensor contract"):
+    with pytest.raises(ControlPlaneError, match="Cannot decode frozen window"):
         # A valid digest does not make a malformed raw tensor safe.
         path.write_bytes(b"not a numpy tensor")
         newdata = path.read_bytes()
