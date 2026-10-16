@@ -213,6 +213,48 @@ def test_stitch_replay_verified_all_nine_outputs(tmp_path: Path, monkeypatch) ->
         origin._replay_field_windows(field, np.ones((512, 512), dtype=np.float32))
 
 
+def test_full_precision_stitch_replay_uses_float32_product_order(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Original workers multiply float32 then accumulate in float64."""
+    from radiation_edge_ai import dnai_paired_fields as paired
+
+    rng = np.random.default_rng(11)
+    importance = np.linspace(.019, .943, 512 * 512, dtype=np.float32).reshape(512, 512)
+    numerator = np.zeros((3, 1024, 1024), dtype=np.float64)
+    denominator = np.zeros((1024, 1024), dtype=np.float64)
+    outputs, identity_windows = [], []
+    positions = [(y, x) for y in (0, 256, 512) for x in (0, 256, 512)]
+    for i, (y, x) in enumerate(positions):
+        logits = rng.standard_normal((1, 3, 512, 512)).astype(np.float32)
+        source = tmp_path / f"window_{i}.npy"
+        np.save(source, logits, allow_pickle=False)
+        raw = source.read_bytes()
+        probabilities = origin._softmax_frozen(logits)[0]
+        numerator[:, y:y + 512, x:x + 512] += probabilities * importance[None]
+        denominator[y:y + 512, x:x + 512] += importance
+        outputs.append({
+            "window_index": i, "y": y, "x": x,
+            "input": {"sha256": "a" * 64, "size_bytes": 2048},
+            "output": {"path": str(source),
+                       "sha256": hashlib.sha256(raw).hexdigest(), "size_bytes": len(raw)},
+        })
+        identity_windows.append({
+            "window_index": i, "y": y, "x": x,
+            "tensor_sha256": "a" * 64, "tensor_size_bytes": 2048,
+        })
+    expected = (numerator / denominator).astype(np.float32)
+    buffer = io.BytesIO()
+    np.savez_compressed(buffer, probabilities=expected)
+    monkeypatch.setattr(paired, "_verified_bytes", lambda *_a: buffer.getvalue())
+    result = origin._replay_field_windows(
+        {"identity": {"windows": identity_windows}, "window_outputs": outputs},
+        importance,
+    )
+    assert result["bitwise_identical_to_saved"] is True
+    assert result["max_abs_replay_error"] == 0.0
+
+
 def test_scientific_worker_wrapper_and_failure(tmp_path: Path, monkeypatch) -> None:
     python = tmp_path / "science.exe"
     python.write_bytes(b"stub")
