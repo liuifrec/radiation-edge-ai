@@ -67,6 +67,45 @@ a nonzero FP512-vs-KL720 difference out of zero differences in every source
 window. This fact alone **does not** establish quantization, stitching,
 padding, NPU inference, or border handling as the cause.
 
+## Windows test I/O incident (2026-10-16)
+
+The first local `.venv` full-suite run produced **184 passed, 7 failed**.
+All seven failures occurred when NumPy attempted to **write test-only
+`.npy` fixtures into the user's C: TEMP/pytest directory**, with
+`OSError: ... requested and 0 written`. This is strong evidence of
+insufficient C: temporary free space, a filesystem limit, or a temp-path
+write restriction, **not evidence of scientific algorithm failure**.
+It does not count as completed local acceptance. Linux GitHub Actions
+passed **191 tests** on Python 3.9 and 3.11.
+
+Before retrying any scientific work, check free space on both C: and D:.
+Do **not** remove or overwrite frozen evidence directories. If D: has
+comfortable free capacity, redirect pytest-only scratch to a dedicated,
+explicitly disposable directory on D: in the **current PowerShell session**:
+
+```powershell
+Get-PSDrive C,D | Select-Object Name,@{Name='FreeGiB';Expression={[math]::Round($_.Free/1GB,2)}}
+$Scratch = 'D:\radiation-edge-ai-data\scratch\pytest-temp-v013'
+New-Item -ItemType Directory -Path $Scratch -Force | Out-Null
+$env:TEMP = $Scratch
+$env:TMP = $Scratch
+# Only this dedicated pytest base is automatically cleaned between runs.
+$TestBase = Join-Path $Scratch 'pytest-basetemp-disposable'
+python -B -m pytest -q tests --basetemp $TestBase
+if ($LASTEXITCODE -ne 0) { throw 'Offline regression must pass before acceptance' }
+```
+
+These settings affect only new processes launched from this PowerShell
+session. Leave all model files, field records, frozen .npy tensors, and
+saved .npz probabilities untouched. If disk free space is low on D:
+as well, stop and resolve storage before retrying.
+
+The pasted console capture ends after the `audit-dnai-window-origin`
+command is issued; it does **not** include that command's exit status,
+replayed-probability results or per-fiber window summaries. Do not
+interpret that incomplete capture as a pass or failure of the new
+scientific worker.
+
 ## Windows PowerShell: actual paired fields
 
 From the active project `.venv` in
