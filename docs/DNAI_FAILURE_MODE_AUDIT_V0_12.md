@@ -116,6 +116,109 @@ inspect per-row local IDs including 1, 15, 17, and 19; check per-class margin
 signs/denominators and boundary grouping; verify source SHA256 unchanged; and
 record any discrepancy without modifying the frozen results.
 
+
+## Permanent-command local acceptance checkpoint (2026-10-16)
+
+The investigator ran the **new permanent read-only command** on the two
+existing verified frozen `1__tile_4` fields, using
+`D:\radiation-edge-ai-data\envs\dnai311\Scripts\python.exe` as
+the scientific worker and the active project `.venv` for offline tests.
+This is *not* a new inference run or an independent holdout.
+
+**Confirmed by the shared PowerShell console output:**
+
+- `python -B -m pytest -q tests` in `.venv`: **180 passed**.
+  The earlier `dnai311` pytest invocation failed because that isolated
+  scientific environment does not include pytest; this was a setup issue,
+  not a test or audit failure.
+- Both source records existed. The investigator captured SHA256 before the
+  audit and checked them again afterward; **neither JSON SHA256 changed**.
+- The command exited successfully, and the returned JSON parsed successfully.
+- `morphology_reproduced_exactly`: **FP512 true; KL720 true**.
+- Historical primary matching: **14 FP512 valid, 12 KL720 valid,
+  11 matched, 3 FP512 unmatched, 1 KL720 unmatched**, precision
+  0.9166666666666666, recall 0.7857142857142857,
+  F1 0.8461538461538461. Historical IoU threshold remains 0.5.
+- FP512 image-edge grouping (fixed **<=32-pixel** descriptive cutoff):
+  **3/3 unmatched** versus **0/11 matched** near the 1024x1024 image edge.
+- Unmatched FP512 source classes: **6 class-presence tests** (2 classes
+  per unmatched valid fiber); **3** had zero KL720 same-class pixels on
+  source support and **3** had zero same-class pixels in the padded ROI.
+- The following raw/final foreground retention is measured only on each
+  source fiber's own reconstructed colored pixel support:
+
+| Source-side unmatched local fiber ID | Source bbox edge distance (px) | Opposite-runtime raw foreground retained | Opposite-runtime final foreground retained |
+| --- | ---: | ---: | ---: |
+| FP512 1 | 0 | 0.0% | 0.0% |
+| FP512 15 | 22 | 47.27272727% | 56.36363636% |
+| FP512 17 | 0 | 25.0% | 43.18181818% |
+| KL720 19 | 92 | 0.0% | 0.0% |
+
+The KL720-specific unmatched ID 19 is **not** close to the image edge
+under the same 32-pixel definition. Its zero opposite-runtime foreground
+retention is relative to *its own KL720 support coordinates*, not a claim
+that no corresponding physical or biological structure exists anywhere in
+the FP512 field. Dilation increased surviving FP512-source support foreground
+retention for IDs 15 and 17, without restoring primary reconstructed-fiber
+correspondence at the unchanged IoU threshold.
+
+**Important reporting distinction:** The console default object formatting
+truncated the detailed KL720 group, KL720 per-class disappearance totals,
+individual color-specific metrics and probability-margin tables. Thus this
+entry records the **confirmed core reproducibility and displayed
+descriptive results**, not independent manual review of every per-class
+probability margin. The earlier corrected exploratory v2 margin diagnostic
+passed separately. The historical matched length/ratio results are in the
+preceding v0.12 correspondence record and were not printed from the new
+audit in this acceptance console capture.
+
+To inspect the remaining fields without rerunning the audit, reuse the
+in-memory `$Audit` object from the successful session:
+
+```powershell
+$Audit.boundary_association.PSObject.Properties | ForEach-Object {
+    [pscustomobject]@{ SideGroup = $_.Name; N = $_.Value.n;
+        Near32px = $_.Value.n_within_32px;
+        DistancesPx = ($_.Value.distances_px -join ',') }
+} | Format-Table -AutoSize
+
+$Audit.unmatched_class_disappearance.PSObject.Properties | ForEach-Object {
+    [pscustomobject]@{ Side = $_.Name;
+        Tested = $_.Value.unmatched_source_classes_tested;
+        ZeroOnSupport = $_.Value.n_zero_target_class_on_support;
+        ZeroInROI = $_.Value.n_zero_target_class_in_padded_roi }
+} | Format-Table -AutoSize
+
+foreach ($side in @('fp512_source','kl720_source')) {
+    $Audit.per_fiber.$side | Where-Object { -not $_.primary_matched } |
+        ForEach-Object {
+            $fiber = $_
+            foreach ($class in $fiber.per_class) {
+                [pscustomobject]@{
+                    Side = $side; FiberID = $fiber.local_fiber_id;
+                    ClassID = $class.class_id;
+                    SupportPixels = $class.source_fiber_support_pixels;
+                    TargetRawClassPixels = $class.target_raw_same_class_on_support;
+                    TargetFinalClassPixels = $class.target_final_same_class_on_support;
+                    FinalZeroInROI = $class.target_final_class_absent_in_padded_roi;
+                    DeltaMarginVsBg = $class.probability_margins.against_background.delta_kl720_minus_fp512_mean
+                }
+            }
+        }
+} | Format-Table -AutoSize
+
+$Audit.historical_instance_matching.primary.length_decomposition_um
+$Audit.historical_instance_matching.primary.matched_length_mae_um
+$Audit.source_fp512.sha256
+$Audit.source_kl720.sha256
+```
+
+Do not convert the 3/3 versus 0/11 edge association into a claim of
+overlapping-window, stitching, image padding, or quantization causation.
+There is no independent per-window ablation, causal intervention or
+multi-image biological-fidelity analysis here. The frozen validations
+and pre-existing scientific conclusions remain unchanged.
+
 ## Synthetic tests
 
 `tests/test_dnai_failure_modes.py` exercises exact class-priority dilation,
