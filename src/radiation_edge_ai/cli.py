@@ -26,6 +26,7 @@ from radiation_edge_ai.control import (
     get_assay,
     list_assays,
 )
+from radiation_edge_ai.dnai_failure_modes import run_scientific_failure_mode_worker
 from radiation_edge_ai.dnai_fiber_instances import run_scientific_fiber_worker
 from radiation_edge_ai.dnai_paired_fields import compare_dnai_fields
 from radiation_edge_ai.execution import execute_run_plan, verify_target
@@ -306,6 +307,15 @@ def build_parser() -> argparse.ArgumentParser:
     instance.add_argument("--kl720", type=Path, required=True)
     instance.add_argument("--scientific-python", type=Path, required=True)
     instance.add_argument("--json", action="store_true")
+
+    failure = subparsers.add_parser(
+        "audit-dnai-failure-modes",
+        help="read-only verified DNAi morphology, margin, fragmentation and edge audit",
+    )
+    failure.add_argument("--fp512", type=Path, required=True)
+    failure.add_argument("--kl720", type=Path, required=True)
+    failure.add_argument("--scientific-python", type=Path, required=True)
+    failure.add_argument("--json", action="store_true")
     return parser
 
 
@@ -642,6 +652,31 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                 output_dir=args.output_dir,
             )
             print(report_path)
+            return 0
+
+        if args.command == "audit-dnai-failure-modes":
+            report = run_scientific_failure_mode_worker(
+                args.fp512, args.kl720, scientific_python=args.scientific_python
+            )
+            if args.json:
+                _dump_json(report)
+            else:
+                boundary = report["boundary_association"]
+                disappeared = report["unmatched_class_disappearance"]
+                print("DNAi frozen FP512/KL720 descriptive failure-mode audit")
+                print("Argmax + 3x3 morphology reproduced: both fields")
+                for label in ("fp512_primary_unmatched", "fp512_primary_matched"):
+                    group = boundary[label]
+                    print("{}: {}/{} within 32 px of image boundary".format(
+                        label, group["n_within_32px"], group["n"]
+                    ))
+                for label, group in disappeared.items():
+                    print("{}: {} of {} unmatched source color classes absent "
+                          "on source support".format(
+                        label, group["n_zero_target_class_on_support"],
+                        group["unmatched_source_classes_tested"]
+                    ))
+                print("Descriptive only; no causal or biological-fidelity conclusion")
             return 0
 
         if args.command == "compare-dnai-fibers":
