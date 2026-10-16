@@ -189,7 +189,7 @@ $Audit.unmatched_class_disappearance.PSObject.Properties | ForEach-Object {
         ZeroInROI = $_.Value.n_zero_target_class_in_padded_roi }
 } | Format-Table -AutoSize
 
-foreach ($side in @('fp512_source','kl720_source')) {
+$ClassRows = foreach ($side in @('fp512_source','kl720_source')) {
     $Audit.per_fiber.$side | Where-Object { -not $_.primary_matched } |
         ForEach-Object {
             $fiber = $_
@@ -205,7 +205,8 @@ foreach ($side in @('fp512_source','kl720_source')) {
                 }
             }
         }
-} | Format-Table -AutoSize
+}
+$ClassRows | Format-Table -AutoSize
 
 $Audit.historical_instance_matching.primary.length_decomposition_um
 $Audit.historical_instance_matching.primary.matched_length_mae_um
