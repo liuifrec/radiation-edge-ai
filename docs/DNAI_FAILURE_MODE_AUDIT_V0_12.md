@@ -25,14 +25,26 @@ git switch feature/v0.12-dnai-failure-modes
 git pull --ff-only origin feature/v0.12-dnai-failure-modes
 
 $SciencePy = 'D:\radiation-edge-ai-data\envs\dnai311\Scripts\python.exe'
+
+# Tests run in the active development .venv, not in isolated dnai311.
+# The scientific DNAi interpreter does not need pytest.
+python -B -m pytest -q tests/test_dnai_failure_modes.py
+python -B -m pytest -q tests
+
+# Supply both existing ABSOLUTE frozen field-record paths explicitly.
+# Do not rely on unset $FP512/$KL720 session variables.
 $FP512 = '<existing verified df1 field_result.json absolute path>'
 $KL720 = '<existing verified df2 field_result.json absolute path>'
+if (!(Test-Path -LiteralPath $FP512 -PathType Leaf)) {
+    throw "Missing FP512 field record: $FP512"
+}
+if (!(Test-Path -LiteralPath $KL720 -PathType Leaf)) {
+    throw "Missing KL720 field record: $KL720"
+}
 
-# First rerun synthetic tests without accessing frozen science data.
-& $SciencePy -B -m pytest -q tests/test_dnai_failure_modes.py
-& $SciencePy -B -m pytest -q tests
-# One read-only real-data acceptance run, not inference.
-& $SciencePy -B -m radiation_edge_ai.cli audit-dnai-failure-modes `
+# The active .venv radedge CLI launches the worker with $SciencePy.
+# This performs no neural inference, writes no source artifacts.
+radedge audit-dnai-failure-modes `
     --fp512 $FP512 --kl720 $KL720 --scientific-python $SciencePy --json
 ```
 
