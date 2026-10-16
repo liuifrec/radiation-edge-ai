@@ -175,6 +175,130 @@ All results are descriptive. Neither an image-boundary association
 nor deterministic Gaussian margin decomposition establishes the
 cause of the original FP512/KL720 inference differences.
 
+
+## Final fiber-level origin checkpoint (2026-10-16)
+
+The investigator inspected the **existing in-memory $Window JSON report**
+from the completed frozen-window replay; **no new inference or source
+mutation** was performed. Both source JSON hashes were independently
+rechecked with PowerShell against the report: **FP512_SHA_OK=True** and
+**KL720_SHA_OK=True**. The full-window replay still gives **zero absolute
+difference for both stitched fields**, exact bitwise identity, and
+unchanged historical greedy bbox-IoU 0.5 matching
+(14 FP512 / 12 KL720 valid, 11 matched, F1 0.8461538461538461).
+Local regression remains **191 passed** with pytest scratch on D:.
+
+### Class support, fixed overlap and internal-window proximity
+
+Class **1 = red**, class **2 = green**. All counts below are on each
+**unmatched reconstructed source-fiber's own class pixels**, not whole
+bounding boxes, and not independent biological annotations. Window
+coverage is from the immutable nine-window layout. `Near32` is the
+number of these pixels within 32 px of an **internal** window edge
+(x or y at 256, 512 or 768); that is separate from the **outer image
+border distance** and is not evidence of a defective seam.
+
+| Source fiber | Class | Class pixels | 1-window | 2-window | 4-window | Near32 | Pixels with opposing pre-stitch signs | KL720−FP512 final margin |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| FP512 #1 | 1 | 29 | 0 | 29 | 0 | 0 | 0 | -1.1332696307930243 |
+| FP512 #1 | 2 | 7 | 0 | 7 | 0 | 0 | 0 | -1.286643013507793 |
+| FP512 #15 | 1 | 39 | 39 | 0 | 0 | 0 | 0 | -0.39372232610073227 |
+| FP512 #15 | 2 | 16 | 16 | 0 | 0 | 8 | 0 | -1.2437842316867318 |
+| FP512 #17 | 1 | 22 | 22 | 0 | 0 | 4 | 0 | -1.4313522491985085 |
+| FP512 #17 | 2 | 22 | 22 | 0 | 0 | 0 | 0 | -0.6369702007558028 |
+| KL720 #19 | 1 | 5 | 0 | 5 | 0 | 0 | 1 | +0.8764627280645072 |
+| KL720 #19 | 2 | 3 | 0 | 3 | 0 | 0 | 1 | +0.8450821148386846 |
+
+**Important distinction:** "single-window" and "not near an internal
+edge" are not equivalent categories. FP512 #15 has 8/16 green source
+pixels near an internal edge **yet all 16 are covered by only one
+window**; FP512 #17 has 4/22 red pixels near an internal edge with
+only one covering window. KL720 #19 is covered by two windows but has
+no source-class pixels within 32 px of any internal edge. A geometric
+seam-proximity statistic alone does not identify a stitching mechanism.
+
+### Independent saved-window class-margin contributions
+
+`RawDelta` denotes the **mean per-window** KL720-minus-FP512
+difference in `p(class)-p(background)` over the source-class pixels
+covered by that saved window. `Contribution` is the Gaussian-weighted
+mean contribution **over the entire source-class support**. Contributions
+from all covering windows sum to the saved final margin delta
+within floating point rounding.
+
+| Source fiber | Class | Window | Source class pixels sampled | RawDelta | Contribution |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| FP512 #1 | 1 | 0 | 29 | -1.6827180903226313 | -0.8419627269670368 |
+| FP512 #1 | 1 | 3 | 29 | -0.5826703591216035 | -0.29130689126485787 |
+| FP512 #1 | 2 | 0 | 7 | -1.5698295245279692 | -0.7849147622639846 |
+| FP512 #1 | 2 | 3 | 7 | -1.0034564464357183 | -0.5017282232178591 |
+| FP512 #15 | 1 | 6 | 39 | -0.39372233173642784 | -0.39372233173642784 |
+| FP512 #15 | 2 | 6 | 16 | -1.2437842318904586 | -1.2437842318904586 |
+| FP512 #17 | 1 | 6 | 22 | -1.4313522502144969 | -1.4313522502144969 |
+| FP512 #17 | 2 | 6 | 22 | -0.6369701929665594 | -0.6369701929665594 |
+| KL720 #19 | 1 | 5 | 5 | +0.9774356555426493 | +0.876028047051167 |
+| KL720 #19 | 1 | 8 | 5 | +0.004189684242010117 | +0.00043467400159148846 |
+| KL720 #19 | 2 | 5 | 3 | +0.9425962370975564 | +0.8448031695428989 |
+| KL720 #19 | 2 | 8 | 3 | +0.002688887412659824 | +0.00027896838222429707 |
+
+Interpretation for **this development field only**:
+
+- **FP512 #1** has two source windows, 0 and 3. Both provide
+  *negative* pre-stitch class-minus-background shifts for both colors.
+  All 36 class-source pixels have two-window coverage, no opposing
+  sign, and none lie within 32 px of an internal window edge.
+  The final negative class-margin shifts are weighted combinations of
+  pre-existing negative per-window shifts, not contradictory seams.
+- **FP512 #15** is wholly in the single-covered part of saved window
+  **6**, including the green class with a -1.2437842318904586 raw
+  delta. **No overlapping-window blend occurs at its 55 measured
+  source-class pixels**. Earlier reconstruction had selective green
+  disappearance.
+- **FP512 #17** is also wholly in the single-covered part of saved
+  window **6**; red is -1.4313522502144969 before stitching.
+  The earlier raw segmentation had zero red on the 22 red source
+  pixels and dilation yielded one same-class pixel.
+- **KL720 #19** is covered by windows 5 and 8, but window 5
+  contributes ~99.95% of the final red-margin shift and ~99.97%
+  of the final green-margin shift. One source pixel per color has
+  opposite-signed per-window deltas, despite both window-averaged
+  deltas being positive. Its local margins are overwhelmingly
+  attributable *algebraically* to the saved window 5 prediction.
+
+### Acceptance decision
+
+**PASS: frozen-output window-origin diagnosis for the previously
+characterized nine-window development field.** The core inference
+difference is *observable upstream of the common Gaussian stitch*,
+and the common stitched implementation is exactly replayable for both
+runtimes. For FP512 #15 and #17 in particular, a multiwindow blending
+effect **cannot be necessary** to produce the measured source-class
+margin shifts because every class-source pixel is covered by only
+one saved window.
+
+The worker enforces the **unchanged** margin decomposition residual
+limit of 2e-6 per source-class support; it completed successfully.
+The console output supplied here did not display the numeric maximum
+residuals (the wide PowerShell table truncated that column), so
+no residual values should be invented or reported beyond the
+programmatic fixed-threshold pass.
+
+This does **not** establish which upstream mechanism caused the saved
+logit differences (quantization, model conversion, execution precision,
+hardware behavior, etc.) or establish a biological fiber ground truth.
+Whole-window metrics (window 2 largest probability MAE; window 6
+lowest argmax agreement) cannot by themselves identify an individual
+fiber mechanism. No inference was rerun, no matching threshold
+was changed, and no historical biological-fidelity conclusion
+was revised.
+
+**Next decision gate:** Review PR #18 first and this stacked PR #19
+second. If approved, freeze this observational investigation and
+design one separate controlled model-conversion/precision comparison
+with explicit ground truth and preserved input/output provenance.
+That intervention is **not** part of this accepted read-only audit.
+
+
 ## Windows PowerShell: actual paired fields
 
 From the active project `.venv` in
