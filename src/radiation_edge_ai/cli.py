@@ -27,6 +27,7 @@ from radiation_edge_ai.control import (
     list_assays,
 )
 from radiation_edge_ai.dnai_failure_modes import run_scientific_failure_mode_worker
+from radiation_edge_ai.dnai_window_origin import run_scientific_window_origin_worker
 from radiation_edge_ai.dnai_fiber_instances import run_scientific_fiber_worker
 from radiation_edge_ai.dnai_paired_fields import compare_dnai_fields
 from radiation_edge_ai.execution import execute_run_plan, verify_target
@@ -316,6 +317,15 @@ def build_parser() -> argparse.ArgumentParser:
     failure.add_argument("--kl720", type=Path, required=True)
     failure.add_argument("--scientific-python", type=Path, required=True)
     failure.add_argument("--json", action="store_true")
+
+    origin = subparsers.add_parser(
+        "audit-dnai-window-origin",
+        help="read-only replay of saved per-window DNAi logits and Gaussian stitching",
+    )
+    origin.add_argument("--fp512", type=Path, required=True)
+    origin.add_argument("--kl720", type=Path, required=True)
+    origin.add_argument("--scientific-python", type=Path, required=True)
+    origin.add_argument("--json", action="store_true")
     return parser
 
 
@@ -652,6 +662,37 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # noqa: UP045
                 output_dir=args.output_dir,
             )
             print(report_path)
+            return 0
+
+        if args.command == "audit-dnai-window-origin":
+            report = run_scientific_window_origin_worker(
+                args.fp512, args.kl720, scientific_python=args.scientific_python
+            )
+            if args.json:
+                _dump_json(report)
+            else:
+                replay = report["frozen_replay"]
+                print("DNAi verified frozen window-origin audit")
+                print("FP512 / KL720 maximum replay error: {} / {}".format(
+                    replay["fp512_max_absolute_probability_error"],
+                    replay["kl720_max_absolute_probability_error"],
+                ))
+                summary = report["historical_instance_matching"]["primary"]["summary"]
+                print("Historical valid-fiber matches: {}".format(summary["n_matched"]))
+                for side, rows in report["per_fiber"].items():
+                    for fiber in rows:
+                        if fiber["historical_primary_matched"]:
+                            continue
+                        for cls in fiber["per_class"]:
+                            print("{} ID={} class={} stitched_margin_delta={:.6g} "
+                                  "coverage_1/2/4={}/{}/{}".format(
+                                side, fiber["local_fiber_id"], cls["class_id"],
+                                cls["saved_stitched_margin_delta_mean"],
+                                cls["n_support_pixels_covered_by_1_window"],
+                                cls["n_support_pixels_covered_by_2_windows"],
+                                cls["n_support_pixels_covered_by_4_windows"],
+                            ))
+                print("No inference, stitching causal attribution or biological equivalence")
             return 0
 
         if args.command == "audit-dnai-failure-modes":
