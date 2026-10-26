@@ -180,6 +180,42 @@ All nine CPU→floating raw argmax-changed counts were **0**, whereas all
 nine floating→BIE changed counts equal their corresponding CPU→physical
 changed counts; all nine BIE→KL720 changed counts were **0**.
 
+### Direction of signed margin shifts on endpoint-disagreement pixels
+
+The investigator additionally inspected the v0.14 `$Stage` signed-margin
+decomposition in the five windows previously associated with the four
+unmatched fibers. The below sample is the **endpoint argmax-disagreement
+pixel population**, not the source-class pixels belonging to individual
+fiber instances. Each margin is probability of the predeclared target
+foreground class minus background. The signed shift is fixed-point BIE
+minus Kneron floating simulator.
+
+| Window | Endpoint-changed raw pixels | CPU→floating abs mean margin shift | Floating→BIE signed mean margin shift | Floating→BIE abs mean margin shift | CPU→physical signed mean margin shift | Maximum telescope residual |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 196 | 1.13904552192104e-06 | **-1.3195790165410304** | 1.398018173769111 | -1.3195789474711073 | 0.0 |
+| 3 | 211 | 1.72974630060354e-06 | **-0.16353792918945875** | 1.04850262459282 | -0.16353789605688573 | 0.0 |
+| 5 | 106 | 6.81598530203666e-07 | **+0.7402637815333569** | 1.2480801392735403 | +0.7402640954571565 | 0.0 |
+| 6 | 531 | 3.12736103567251e-06 | **-0.908483627734056** | 1.2218566243110354 | -0.9084857483371424 | 0.0 |
+| 8 | 45 | 2.47010547253821e-06 | **-0.30096966912969947** | 1.0379181602245404 | -0.30096956932296354 | 0.0 |
+
+The fixed-point stage can shift the selected class-versus-background margins
+in **different directions** across windows: negative mean for 0/3/6/8,
+positive for 5. Absolute mean shifts exceed 1.0 in each shown window;
+near-zero CPU→floating differences and exact telescope residuals support
+the algebraic localization. Because this selected population is defined
+by endpoint disagreement and can contain heterogeneous foreground classes,
+the signs **must not** be interpreted as global red/green intensity bias
+or as fiber-specific measurements. Neither a single scalar calibration
+offset nor downstream morphological-threshold adjustment is justified
+by this evidence.
+
+**Engineering implication, not a deployed fix:** investigate already-tested
+PTQ candidates and the fixed-point output/activation bitwidth controls
+with a version-pinned toolchain and a new independent validation design.
+Selected v3 already used `percentage=1.0` and `optimize=0`; repeating
+that single tweak would not resolve the unanswered precision question.
+Do not replace the frozen v3 BIE/NEF or retune v0.13's matching rule.
+
 ### What this does—and does not—establish
 
 - In the *saved outputs for this previously selected field*, the
