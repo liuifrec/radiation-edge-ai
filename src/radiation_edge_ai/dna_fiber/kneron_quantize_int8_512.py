@@ -312,11 +312,18 @@ def main() -> int:
     tensor_records = manifest.get("records", [])
     if not tensor_records:
         raise RuntimeError("Calibration manifest contains no tensor records")
+    if candidate:
+        validate_candidate_calibration(manifest, tensor_records)
 
+    candidate_tensor_hashes = []
     global_min = float("inf")
     global_max = float("-inf")
     for record in tensor_records:
         tensor_path = calibration_root / record["tensor"]
+        if candidate and not tensor_path.resolve().is_relative_to(
+            calibration_root.resolve()
+        ):
+            raise SystemExit("Candidate tensor escapes frozen calibration root")
         if not tensor_path.is_file():
             raise FileNotFoundError(tensor_path)
         array = np.load(tensor_path, allow_pickle=False)
@@ -326,6 +333,11 @@ def main() -> int:
             raise RuntimeError(f"Unexpected calibration dtype {array.dtype}: {tensor_path}")
         if not np.isfinite(array).all():
             raise RuntimeError(f"Non-finite calibration values: {tensor_path}")
+        if candidate:
+            candidate_tensor_hashes.append({
+                "tensor": record["tensor"],
+                "sha256": sha256_file(tensor_path),
+            })
         array = np.ascontiguousarray(array, dtype=np.float32)
         arrays.append(array)
         global_min = min(global_min, float(array.min()))
@@ -336,6 +348,24 @@ def main() -> int:
     print(" - dtype: float32")
     print(f" - global range: [{global_min:.6f}, {global_max:.6f}]")
     print(" - validation panel used for calibration: NO")
+
+    if candidate:
+        candidate["calibration_tensors_sha256_now"] = candidate_tensor_hashes
+        candidate["calibration_tensor_count_verified"] = len(candidate_tensor_hashes)
+        print(" - v0.15 ONNX/manifest/tensor SHA256 preflight: PASS")
+        if args.candidate_preflight_only:
+            print(json.dumps({
+                "status": "V015_PREFLIGHT_PASS_NO_ANALYSIS_NO_OUTPUT_DIRECTORY",
+                "candidate": candidate["candidate"],
+                "onnx_sha256": candidate["optimized_onnx_sha256_verified"],
+                "calibration_manifest_sha256": candidate[
+                    "calibration_manifest_sha256_verified"
+                ],
+                "calibration_tensor_count": len(candidate_tensor_hashes),
+                "toolchain_image_id_declared": V015_TOOLCHAIN_IMAGE_ID,
+            }, sort_keys=True))
+            return 0
+        output_dir.mkdir(parents=True, exist_ok=False)
 
     print("[Create KL720 ModelConfig]")
     km = ktc.ModelConfig(
@@ -352,18 +382,9 @@ def main() -> int:
     started = time.time()
     try:
         os.chdir(output_dir)
-        bie_returned = Path(
-            km.analysis(
-                input_mapping,
-                threads=args.threads,
-                datapath_range_method=args.datapath_range_method,
-                percentage=args.percentage,
-                percentage_16b=args.percentage_16b,
-                percentile=args.percentile,
-                outlier_factor=args.outlier_factor,
-                optimize=args.optimize,
-            )
-        ).resolve()
+        bie_returned = Path(km.analysis(
+            input_mapping, **build_analysis_options(args)
+        )).resolve()
     finally:
         os.chdir(old_cwd)
 
@@ -415,6 +436,10 @@ def main() -> int:
         "artifacts": artifacts,
         "validation_panel_used_for_calibration": False,
     }
+    if candidate:
+        ptq_config["model_out_bitwidth_mode"] = "int16"
+        summary["ptq_config"] = ptq_config
+        summary["v015_candidate_provenance"] = candidate
     summary_path = output_dir / "int8_analysis_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
