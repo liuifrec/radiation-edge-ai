@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import time
 from pathlib import Path
@@ -28,6 +29,107 @@ import numpy as np
 import onnx
 
 EXPECTED_SHAPE = (1, 3, 512, 512)
+
+# Frozen historical models are immutable; v0.15 alters ONLY model-output precision.
+V015_ONNX_SHA256 = "a901d1b309a9a0e5026febd5070252787e4b110a2a7d2828e16a19364d6094d0"
+V015_TOOLCHAIN_IMAGE_ID = (
+    "sha256:2207d99c9f78deef90647a3da3047ec3f7942ec689385a586fee476f77e89041"
+)
+V015_OUTPUT_DIRECTORY = "int8_512_v5_int16out"
+HISTORICAL_PTQ_DIRECTORIES = frozenset((
+    "int8_512", "int8_512_v2", "int8_512_v3_pct100", "int8_512_v4_bias",
+))
+V015_V3_RECIPE = {
+    "datapath_range_method": "percentage",
+    "percentage": 1.0,
+    "percentage_16b": 1.0,
+    "percentile": 0.001,
+    "outlier_factor": 1.0,
+    "optimize": 0,
+}
+
+
+def build_analysis_options(args: argparse.Namespace) -> dict:
+    """Keep the historical default analysis kwargs unchanged, including order."""
+    options = {
+        "threads": args.threads,
+        "datapath_range_method": args.datapath_range_method,
+        "percentage": args.percentage,
+        "percentage_16b": args.percentage_16b,
+        "percentile": args.percentile,
+        "outlier_factor": args.outlier_factor,
+        "optimize": args.optimize,
+    }
+    if args.model_out_bitwidth_mode is not None:
+        options["model_out_bitwidth_mode"] = args.model_out_bitwidth_mode
+    return options
+
+
+def validate_int16_candidate(
+    args: argparse.Namespace, onnx_path: Path, manifest_path: Path, output_dir: Path
+) -> dict | None:
+    """Fail closed before creating an experimental output directory."""
+    if args.model_out_bitwidth_mode is None:
+        if args.candidate_toolchain_image_id or args.candidate_manifest_sha256 or (
+            args.candidate_preflight_only
+        ):
+            raise SystemExit("Candidate-only arguments require --model-out-bitwidth-mode int16")
+        return None
+    if args.model_out_bitwidth_mode != "int16":
+        raise SystemExit("Only the isolated INT16-output candidate is allowed")
+    if str(args.platform) != "720" or args.model_id != 32769 or (
+        args.model_version != "8b28"
+    ):
+        raise SystemExit("v0.15 candidate must use frozen KL720 model ID/version")
+    if args.candidate_toolchain_image_id != V015_TOOLCHAIN_IMAGE_ID:
+        raise SystemExit("Candidate requires the verified immutable Docker image ID")
+    if not args.candidate_manifest_sha256 or not re.fullmatch(
+        r"[0-9a-fA-F]{64}", args.candidate_manifest_sha256
+    ):
+        raise SystemExit("Candidate requires 64-hex --candidate-manifest-sha256")
+    if output_dir.name != V015_OUTPUT_DIRECTORY or (
+        HISTORICAL_PTQ_DIRECTORIES.intersection(output_dir.parts)
+    ):
+        raise SystemExit("Candidate must use a new isolated int8_512_v5_int16out directory")
+    if output_dir.exists():
+        raise SystemExit("Candidate output directory must not exist (no overwrites)")
+    observed_recipe = {
+        "datapath_range_method": args.datapath_range_method,
+        "percentage": args.percentage,
+        "percentage_16b": args.percentage_16b,
+        "percentile": args.percentile,
+        "outlier_factor": args.outlier_factor,
+        "optimize": args.optimize,
+    }
+    if observed_recipe != V015_V3_RECIPE:
+        raise SystemExit("Candidate may change ONLY output bitwidth; exact v3 PTQ required")
+    onnx_digest = sha256_file(onnx_path)
+    if onnx_digest != V015_ONNX_SHA256:
+        raise SystemExit("Frozen optimized ONNX SHA256 mismatch")
+    manifest_digest = sha256_file(manifest_path)
+    if manifest_digest.lower() != args.candidate_manifest_sha256.lower():
+        raise SystemExit("Calibration manifest SHA256 mismatch")
+    return {
+        "candidate": "v0.15_INT16_model_output_only",
+        "model_out_bitwidth_mode": "int16",
+        "toolchain_image_id_declared": V015_TOOLCHAIN_IMAGE_ID,
+        "optimized_onnx_sha256_verified": onnx_digest,
+        "calibration_manifest_sha256_verified": manifest_digest,
+        "experimental_not_deployed": True,
+    }
+
+
+def validate_candidate_calibration(manifest: dict, records: list) -> None:
+    """Require the exact historical 192-source calibration scope."""
+    if manifest.get("validation_panel_used_for_calibration") is not False:
+        raise SystemExit("Candidate calibration must explicitly exclude validation panel")
+    if len(records) != 192 or manifest.get("n_tensors") != 192:
+        raise SystemExit("Candidate requires exactly 192 v2 calibration tensors")
+    if len({record["tensor"] for record in records}) != 192:
+        raise SystemExit("Duplicate candidate calibration tensor paths")
+    if len({record["source_sha256"] for record in records}) != 192:
+        raise SystemExit("Candidate requires 192 unique training-source hashes")
+
 
 
 def sha256_file(path: Path) -> str:
@@ -121,12 +223,30 @@ def main() -> int:
         default=0,
         help="Kneron bias/feature-map optimization level",
     )
+    parser.add_argument(
+        "--model-out-bitwidth-mode", choices=("int16",), default=None,
+        help="Opt-in v0.15; omit to preserve unchanged historical analysis options",
+    )
+    parser.add_argument(
+        "--candidate-toolchain-image-id", default=None,
+        help="Required: independently verified immutable Docker image ID",
+    )
+    parser.add_argument(
+        "--candidate-manifest-sha256", default=None,
+        help="Required: 64-character frozen calibration manifest SHA256",
+    )
+    parser.add_argument(
+        "--candidate-preflight-only", action="store_true",
+        help="Check all v0.15 bytes and exit WITHOUT analysis or creating output dir",
+    )
     args = parser.parse_args()
 
     onnx_path = Path(args.onnx).resolve()
     manifest_path = Path(args.calibration_manifest).resolve()
     output_dir = Path(args.output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if args.model_out_bitwidth_mode is None:
+        # Preserve the historical v1-v4 behavior, including directory creation.
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     if not onnx_path.is_file():
         raise FileNotFoundError(onnx_path)
@@ -144,6 +264,8 @@ def main() -> int:
         raise SystemExit("--percentile must be positive")
     if args.outlier_factor <= 0.0:
         raise SystemExit("--outlier-factor must be positive")
+
+    candidate = validate_int16_candidate(args, onnx_path, manifest_path, output_dir)
 
     print("Radiation Edge AI - KL720 DNAi fixed-point calibration")
     print(f"ONNX: {onnx_path}")
