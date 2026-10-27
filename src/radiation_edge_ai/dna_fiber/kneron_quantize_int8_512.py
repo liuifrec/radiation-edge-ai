@@ -320,9 +320,9 @@ def main() -> int:
     global_max = float("-inf")
     for record in tensor_records:
         tensor_path = calibration_root / record["tensor"]
-        if candidate and not tensor_path.resolve().is_relative_to(
-            calibration_root.resolve()
-        ):
+        if candidate and os.path.commonpath([
+            str(tensor_path.resolve()), str(calibration_root.resolve())
+        ]) != str(calibration_root.resolve()):
             raise SystemExit("Candidate tensor escapes frozen calibration root")
         if not tensor_path.is_file():
             raise FileNotFoundError(tensor_path)
