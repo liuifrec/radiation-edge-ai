@@ -21,6 +21,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -79,7 +80,7 @@ def validate_v015_development(
         by_sample[str(record["sample_id"])].append(record)
         tensor = (Path(args.validation_manifest).parent / record["tensor"]).resolve()
         root = Path(args.validation_manifest).parent.resolve()
-        if not tensor.is_relative_to(root):
+        if os.path.commonpath([str(tensor), str(root)]) != str(root):
             raise SystemExit("v0.15 frozen input path escapes manifest root")
     if set(by_sample) != V015_SELECTED_SAMPLES:
         raise SystemExit("v0.15 selected sample set mismatch")
