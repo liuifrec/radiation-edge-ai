@@ -232,3 +232,122 @@ until candidate BIE output is tested with contemporaneous input/output
 hashes and frozen object-level criteria. Neither the historic 20-image
 panel nor already used PTQ test images are an untouched confirmatory set.
 
+## Fixed-point development screening: 27 SHA-bound windows
+
+Successful write-isolated first BIE generation (2026-10-29):
+
+- `D:\radiation-edge-ai-data\scratch\dnai_v015_int16out_20261029_135302\int8_512_v5_int16out\unet_mobileone_s1_512x512_int16out.bie`
+- Independently checked SHA256: `a4986b71e48305b19f21f576c25cd6fc02e66f5aa5cf35c6e076dba252b53e9c`
+- Size 52.78 MiB; selected output precision INT16; 192 calibration inputs.
+- Verified candidate summary PTQ provenance and saved `model_fx_report.html`.
+- No BIE simulator, DNA-fiber postprocessing or NEF compilation yet.
+
+**One predeclared development screen:** the same frozen 20-image panel
+which already supported historical PTQ characterization, restricted
+explicitly to the three **previously used development samples**
+`1__tile_4`, `2__tile_9`, `16__tile_5`.
+That is 27 normalized 512x512 windows (nine per image). It is
+**not** a fresh independent holdout and cannot prove generalization.
+
+The existing `kneron_run_bie_validation_512.py` now supports
+`--v015-strict-development`, an additive flag that fails before
+creating an output directory unless the BIE and ONNX SHA256 match
+these recorded values, all requested samples and their nine-window
+layouts are present with frozen coordinates, and the output directory
+is new with basename `bie_validation_v015_3dev`.
+Each newly generated float/BIE `.npy` is hashed **immediately after
+being saved**, together with its input `.npy`. The per-window CSV
+records these three SHA256 values and the new summary records the
+current validation-manifest SHA256. Existing invocations without
+the flag retain their old behavior and outputs.
+
+### Run only the predeclared development BIE simulator
+
+**This runs 27 floating-ONNX and 27 BIE simulator inferences, writing
+only to a new isolated scratch subdirectory**. Do not use `--limit`.
+Leave the existing v3/v4 `.npy` and segmentation files untouched.
+
+```powershell
+Set-Location 'C:\Users\yul03\Projects\radiation-edge-ai'
+$ErrorActionPreference = 'Stop'
+git switch feature/v0.15-dnai-int16out-preflight
+if ($LASTEXITCODE -ne 0) { throw 'Git switch failed' }
+git pull --ff-only
+if ($LASTEXITCODE -ne 0) { throw 'Git pull failed' }
+
+$ImageID = 'sha256:2207d99c9f78deef90647a3da3047ec3f7942ec689385a586fee476f77e89041'
+$DataRoot = 'D:\radiation-edge-ai-data'
+$RepoRoot = (Get-Location).Path
+$RunRoot = Join-Path $DataRoot 'scratch\dnai_v015_int16out_20261029_135302'
+$Candidate = Join-Path $RunRoot 'int8_512_v5_int16out'
+$Bie = Join-Path $Candidate 'unet_mobileone_s1_512x512_int16out.bie'
+$S = Join-Path $Candidate 'int8_analysis_summary.json'
+$SimHost = Join-Path $RunRoot 'bie_validation_v015_3dev'
+$BieSHA = 'a4986b71e48305b19f21f576c25cd6fc02e66f5aa5cf35c6e076dba252b53e9c'
+if (-not (Test-Path $S) -or -not (Test-Path $Bie)) { throw 'Missing candidate' }
+if ((Get-FileHash $Bie -Algorithm SHA256).Hash -ine $BieSHA) { throw 'Candidate SHA mismatch' }
+if (Test-Path -LiteralPath $SimHost) { throw 'Already generated. Do not overwrite.' }
+if ((Get-PSDrive D).Free -lt 10GB) { throw 'Insufficient D: scratch space' }
+
+docker run --rm --pull never --network none `
+    --mount "type=bind,source=$RepoRoot,target=/radedge_repo,readonly" `
+    --mount "type=bind,source=$DataRoot,target=/workspace/data,readonly" `
+    --mount "type=bind,source=$RunRoot,target=/v015_work" `
+    --entrypoint /workspace/miniconda/bin/python `
+    $ImageID -B `
+    /radedge_repo/src/radiation_edge_ai/dna_fiber/kneron_run_bie_validation_512.py `
+    --onnx /workspace/data/models/dnai/unet_mobileone_s1/kneron/unet_mobileone_s1_512x512_opset11_optimized.onnx `
+    --bie /workspace/data/scratch/dnai_v015_int16out_20261029_135302/int8_512_v5_int16out/unet_mobileone_s1_512x512_int16out.bie `
+    --validation-manifest /workspace/data/models/dnai/unet_mobileone_s1/kneron/int8_512/validation_512_overlap50/validation_windows_manifest.json `
+    --output-dir /v015_work/bie_validation_v015_3dev `
+    --sample-ids '1__tile_4,2__tile_9,16__tile_5' `
+    --v015-strict-development
+if ($LASTEXITCODE -ne 0) { throw ('Preserve scratch. BIE simulator failed: ' + $RunRoot) }
+
+$SummaryFile = Join-Path $SimHost 'summary.json'
+if (-not (Test-Path $SummaryFile)) { throw 'Missing simulator summary' }
+$Summary = Get-Content $SummaryFile -Raw | ConvertFrom-Json
+if ($Summary.n_windows -ne 27 -or
+    $Summary.v015_strict_provenance.n_window_receipts -ne 27 -or
+    $Summary.bie_sha256 -ine $BieSHA) {
+    throw 'Invalid 27-window source-bound simulator receipt'
+}
+$WindowTable = @(Import-Csv (Join-Path $SimHost 'per_window.csv'))
+if ($WindowTable.Count -ne 27) { throw 'Missing window rows' }
+foreach ($row in $WindowTable) {
+    if ((Get-FileHash -LiteralPath ($row.floating_output -replace '^/v015_work', $RunRoot) -Algorithm SHA256).Hash -ine $row.floating_output_sha256) {
+        throw ('Floating output hash changed: ' + $row.sample_id)
+    }
+    if ((Get-FileHash -LiteralPath ($row.bie_output -replace '^/v015_work', $RunRoot) -Algorithm SHA256).Hash -ine $row.bie_output_sha256) {
+        throw ('BIE output hash changed: ' + $row.sample_id)
+    }
+}
+Write-Host 'V015_BIE_27_WINDOWS_SHA_BOUND: PASS'
+Write-Host ('BIE simulation output: ' + $SimHost)
+Write-Host ('Raw argmax changed pixels: ' + $Summary.metrics.disagreement_pixels)
+Write-Host ('Mean centered-logit RMSE: ' + $Summary.metrics.mean_centered_logit_rmse)
+```
+
+**Caution:** The last PowerShell receipt audit above only checks output
+hashes; the script's immediate-production CSV also contains input hashes
+to audit against the frozen validation files. `per_window.csv` paths
+are Linux container paths and require prefix translation for Windows.
+The code checks the original BIE, ONNX, manifest and exact 3x9 layout
+before writing any simulator artifact. Preserve the entire run folder
+even if Kneron's simulator fails partway.
+
+### Biological screening after the simulator
+
+Once the 27-window step has passed, run the existing
+`evaluate_bie_biological_fidelity_512.py` in the DNAi Windows environment
+with the **existing unchanged manifest**,
+`--bie-run-dir` pointed to the new output subdirectory,
+and `--output` pointed to a **new distinct scratch** folder.
+Require `n_complete_images=3` and no source mutation. Then examine
+same-sample v3/v4/v5 fiber identities with SHA-verified H1–H4 graders
+before any NEF compilation. Preserve the prespecified 3/4 human-supported
+anchors: `2__tile_9` FP-local #2 and #6, `16__tile_5` FP-local #1.
+
+Do not mistake the v5 simulator for physical KL720 measurements or this
+already-characterized panel for an independent confirmation.
+
