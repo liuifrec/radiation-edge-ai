@@ -159,3 +159,50 @@ def test_int16_calibration_rejects_legacy_panel_and_duplicates(monkeypatch):
             {"n_tensors": 192, "validation_panel_used_for_calibration": False},
             new_records,
         )
+
+
+def test_candidate_reports_do_not_inherit_stale_sdk_files(monkeypatch, tmp_path):
+    mod = load_quantizer(monkeypatch)
+    filename = "model_fx_report.json"
+    source = tmp_path / "stale" / filename
+    source.parent.mkdir(parents=True)
+    source.write_text('{"old_version":"do_not_copy"}', encoding="utf-8")
+    target = tmp_path / "candidate"
+    target.mkdir()
+
+    calls = []
+
+    def fake_find_newest(name, started, *, only_fresh=False):
+        calls.append((name, only_fresh))
+        return None if only_fresh else source
+
+    monkeypatch.setattr(mod, "find_newest", fake_find_newest)
+    assert mod.copy_if_present(
+        filename, target, 100.0, only_fresh=True
+    ) is None
+    assert not (target / filename).exists()
+    result = mod.copy_if_present(filename, target, 100.0)
+    assert result == str(target / filename)
+    assert (target / filename).read_bytes() == source.read_bytes()
+    assert calls == [(filename, True), (filename, False)]
+
+
+def test_find_newest_candidate_requires_fresh_file(monkeypatch, tmp_path):
+    mod = load_quantizer(monkeypatch)
+    import os
+    from pathlib import Path as RealPath
+
+    sdk_root = tmp_path / "sdk"
+    sdk_root.mkdir()
+    artifact = sdk_root / "analysis.log"
+    artifact.write_bytes(b"old report that must not be attributed to v0.15")
+    os.utime(artifact, (1, 1))
+
+    roots = {
+        "/data1/kneron_flow": sdk_root,
+        "/workspace/.tmp": tmp_path / "missing_workspace",
+        "/tmp": tmp_path / "missing_tmp",
+    }
+    monkeypatch.setattr(mod, "Path", lambda name: roots.get(name, RealPath(name)))
+    assert mod.find_newest("analysis.log", started=1000, only_fresh=True) is None
+    assert mod.find_newest("analysis.log", started=1000) == artifact
