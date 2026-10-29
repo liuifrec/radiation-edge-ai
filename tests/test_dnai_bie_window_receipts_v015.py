@@ -146,7 +146,7 @@ def test_strict_writes_27_current_input_and_simulator_output_hash_receipts(
         np.ones((1, 3, 4, 4), dtype=np.float32)
         if "bie_file" not in kwargs
         else np.zeros((1, 3, 4, 4), dtype=np.float32)
-    ])
+    ], raising=False)
     monkeypatch.setattr(sys, "argv", [
         "script.py",
         "--onnx", str(onnx),
