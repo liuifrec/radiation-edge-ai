@@ -22,6 +22,7 @@ import csv
 import hashlib
 import json
 import time
+from collections import defaultdict
 from pathlib import Path
 
 import ktc
@@ -29,6 +30,84 @@ import numpy as np
 
 EXPECTED_INPUT_SHAPE = (1, 3, 512, 512)
 EXPECTED_OUTPUT_SHAPE = (1, 3, 512, 512)
+
+V015_SELECTED_SAMPLES = frozenset((
+    "1__tile_4", "2__tile_9", "16__tile_5",
+))
+V015_ONNX_SHA256 = (
+    "a901d1b309a9a0e5026febd5070252787e4b110a2a7d2828e16a19364d6094d0"
+)
+V015_BIE_SHA256 = (
+    "a4986b71e48305b19f21f576c25cd6fc02e66f5aa5cf35c6e076dba252b53e9c"
+)
+V015_OUTPUT_DIRECTORY = "bie_validation_v015_3dev"
+V015_EXPECTED_WINDOWS = 27
+
+
+def validate_v015_development(
+    args: argparse.Namespace,
+    onnx_path: Path, bie_path: Path, output_dir: Path,
+    manifest: dict, records: list[dict],
+) -> dict:
+    """Exact three-sample development screen; reject before any output creation."""
+    if not args.v015_strict_development:
+        raise ValueError("Strict gate called without explicit opt-in")
+    if args.sample_ids is None or parse_sample_ids(args.sample_ids) != V015_SELECTED_SAMPLES:
+        raise SystemExit("v0.15 requires exactly the three predeclared samples")
+    if args.image_indices is not None or args.limit is not None:
+        raise SystemExit("v0.15 forbids ad hoc index or window limit selection")
+    if args.platform != 720:
+        raise SystemExit("v0.15 model is for KL720")
+    if output_dir.name != V015_OUTPUT_DIRECTORY or output_dir.exists():
+        raise SystemExit("v0.15 output must be a new bie_validation_v015_3dev directory")
+    if bie_path.name != "unet_mobileone_s1_512x512_int16out.bie":
+        raise SystemExit("v0.15 requires the named INT16-output experimental BIE")
+    if bie_path.parent.name != "int8_512_v5_int16out":
+        raise SystemExit("v0.15 BIE must be inside the isolated v5 candidate directory")
+    bie_hash, onnx_hash = sha256_file(bie_path), sha256_file(onnx_path)
+    if bie_hash != V015_BIE_SHA256 or onnx_hash != V015_ONNX_SHA256:
+        raise SystemExit("v0.15 BIE/ONNX immutable SHA256 mismatch")
+    if manifest.get("dnai_commit") != "fcf20c7d6eb385675ff7d07da4fdf471589ce0cf":
+        raise SystemExit("v0.15 frozen DNAi upstream revision mismatch")
+    if (manifest.get("windows_per_image") != 9 or manifest.get("stride") != 256
+        or manifest.get("blend") != "gaussian" or manifest.get("input_name") != "input"):
+        raise SystemExit("v0.15 frozen preprocessing/window manifest mismatch")
+    if len(records) != V015_EXPECTED_WINDOWS:
+        raise SystemExit("v0.15 requires 27 windows, nine from each of three samples")
+    by_sample = defaultdict(list)
+    for record in records:
+        by_sample[str(record["sample_id"])].append(record)
+        tensor = (Path(args.validation_manifest).parent / record["tensor"]).resolve()
+        root = Path(args.validation_manifest).parent.resolve()
+        if not tensor.is_relative_to(root):
+            raise SystemExit("v0.15 frozen input path escapes manifest root")
+    if set(by_sample) != V015_SELECTED_SAMPLES:
+        raise SystemExit("v0.15 selected sample set mismatch")
+    for sample, sample_records in by_sample.items():
+        if len(sample_records) != 9 or {
+            int(record["window_index"]) for record in sample_records
+        } != set(range(9)):
+            raise SystemExit("v0.15 nine unique windows missing for " + sample)
+        if len({str(record["image_index"]) for record in sample_records}) != 1:
+            raise SystemExit("v0.15 sample has multiple image indices: " + sample)
+        expected_xy = {
+            (x, y) for x in (0, 256, 512) for y in (0, 256, 512)
+        }
+        xy = {(int(record["x"]), int(record["y"])) for record in sample_records}
+        if xy != expected_xy:
+            raise SystemExit("v0.15 coordinates mismatch for " + sample)
+    return {
+        "status": "development_only_not_holdout",
+        "v015_bie_sha256_verified": bie_hash,
+        "v015_onnx_sha256_verified": onnx_hash,
+        "frozen_input_manifest_sha256": sha256_file(
+            Path(args.validation_manifest)
+        ),
+        "frozen_expected_samples": sorted(V015_SELECTED_SAMPLES),
+        "frozen_expected_windows": V015_EXPECTED_WINDOWS,
+        "source_model_output_precision": "int16",
+    }
+
 
 
 def sha256_file(path: Path) -> str:
@@ -165,6 +244,10 @@ def main() -> int:
         ),
     )
     parser.add_argument("--limit", type=int, default=None, help="Limit number of windows after image filtering")
+    parser.add_argument(
+        "--v015-strict-development", action="store_true",
+        help="Record fresh input and output SHA256 for exactly three frozen v0.15 development fields",
+    )
     args = parser.parse_args()
 
     if args.image_indices is not None and args.sample_ids is not None:
@@ -176,9 +259,11 @@ def main() -> int:
     output_dir = Path(args.output_dir).resolve()
     fp_dir = output_dir / "floating_outputs"
     bie_dir = output_dir / "bie_outputs"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    fp_dir.mkdir(parents=True, exist_ok=True)
-    bie_dir.mkdir(parents=True, exist_ok=True)
+    if not args.v015_strict_development:
+        # Preserve the historical execution and output-directory behavior.
+        output_dir.mkdir(parents=True, exist_ok=True)
+        fp_dir.mkdir(parents=True, exist_ok=True)
+        bie_dir.mkdir(parents=True, exist_ok=True)
 
     for path in (onnx_path, bie_path, manifest_path):
         if not path.is_file():
@@ -226,6 +311,15 @@ def main() -> int:
     if not records:
         raise RuntimeError("No validation windows found")
 
+    v015_provenance = None
+    if args.v015_strict_development:
+        v015_provenance = validate_v015_development(
+            args, onnx_path, bie_path, output_dir, manifest, records
+        )
+        output_dir.mkdir(parents=True, exist_ok=False)
+        fp_dir.mkdir()
+        bie_dir.mkdir()
+
     selected_samples = []
     seen_samples = set()
     for record in records:
@@ -254,6 +348,7 @@ def main() -> int:
 
     for position, record in enumerate(records, start=1):
         tensor_path = validation_root / record["tensor"]
+        input_hash = sha256_file(tensor_path) if v015_provenance else None
         array = np.load(tensor_path, allow_pickle=False)
         if array.shape != EXPECTED_INPUT_SHAPE or array.dtype != np.float32:
             raise RuntimeError(f"Invalid validation tensor {array.shape} {array.dtype}: {tensor_path}")
@@ -300,6 +395,11 @@ def main() -> int:
             "floating_ms": floating_ms,
             "bie_ms": fixed_ms,
         }
+        if v015_provenance:
+            # Bind bytes at the point of production, not in a later replay.
+            row["input_tensor_sha256"] = input_hash
+            row["floating_output_sha256"] = sha256_file(fp_path)
+            row["bie_output_sha256"] = sha256_file(bie_out_path)
         rows.append(row)
         print(
             f"[{position:03d}/{len(records):03d}] {record['sample_id']} w{record['window_index']} "
@@ -354,6 +454,13 @@ def main() -> int:
         "floating_output_dir": str(fp_dir),
         "bie_output_dir": str(bie_dir),
     }
+    if v015_provenance:
+        v015_provenance["n_window_receipts"] = len(rows)
+        v015_provenance["per_window_receipt_columns"] = [
+            "input_tensor_sha256", "floating_output_sha256",
+            "bie_output_sha256",
+        ]
+        summary["v015_strict_provenance"] = v015_provenance
     summary_path = output_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
