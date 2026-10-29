@@ -145,7 +145,9 @@ def graph_input_names(model: onnx.ModelProto) -> list[str]:
     return [item.name for item in model.graph.input if item.name not in initializer_names]
 
 
-def find_newest(filename: str, started: float) -> Path | None:
+def find_newest(
+    filename: str, started: float, *, only_fresh: bool = False
+) -> Path | None:
     roots = (Path("/data1/kneron_flow"), Path("/workspace/.tmp"), Path("/tmp"))
     candidates: list[Path] = []
     for root in roots:
@@ -163,12 +165,16 @@ def find_newest(filename: str, started: float) -> Path | None:
     if not candidates:
         return None
     fresh = [p for p in candidates if p.stat().st_mtime >= started - 5.0]
+    if only_fresh and not fresh:
+        return None
     pool = fresh if fresh else candidates
     return max(pool, key=lambda p: p.stat().st_mtime)
 
 
-def copy_if_present(filename: str, output_dir: Path, started: float) -> str | None:
-    source = find_newest(filename, started)
+def copy_if_present(
+    filename: str, output_dir: Path, started: float, *, only_fresh: bool = False
+) -> str | None:
+    source = find_newest(filename, started, only_fresh=only_fresh)
     if source is None:
         return None
     destination = output_dir / filename
@@ -391,7 +397,10 @@ def main() -> int:
     if not bie_returned.is_file():
         raise RuntimeError(f"Kneron analysis returned missing BIE path: {bie_returned}")
 
-    bie_destination = output_dir / "unet_mobileone_s1_512x512_int8.bie"
+    bie_destination = output_dir / (
+        "unet_mobileone_s1_512x512_int16out.bie"
+        if candidate else "unet_mobileone_s1_512x512_int8.bie"
+    )
     if bie_returned.resolve() != bie_destination.resolve():
         shutil.copy2(bie_returned, bie_destination)
 
@@ -402,7 +411,9 @@ def main() -> int:
         "analysis.log",
         "quantize.log",
     ):
-        artifacts[filename] = copy_if_present(filename, output_dir, started)
+        artifacts[filename] = copy_if_present(
+            filename, output_dir, started, only_fresh=bool(candidate)
+        )
 
     elapsed = time.time() - started
     ptq_config = {
