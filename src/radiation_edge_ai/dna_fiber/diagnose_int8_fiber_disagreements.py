@@ -167,6 +167,12 @@ def main() -> int:
         expected = {"1__tile_4", "2__tile_9", "16__tile_5"}
         if len(observed) != 3 or {row["sample_id"] for row in observed} != expected:
             raise SystemExit("v0.15 biological summary must contain the 3 frozen samples")
+        candidate_masks = (
+            root / args.sample_id / "floating_segmentation_class_ids.png",
+            root / args.sample_id / "bie_segmentation_class_ids.png",
+        )
+        if not all(path.is_file() for path in candidate_masks):
+            raise SystemExit("v0.15 candidate stitched masks are incomplete")
         version_dirs["v5"] = root / args.sample_id
     available = {
         name: path
@@ -176,6 +182,8 @@ def main() -> int:
     }
     if not available:
         raise RuntimeError("No completed biological-fidelity variant directories found")
+    if args.v015_biological_root is not None and not {"v3", "v4", "v5"}.issubset(available):
+        raise SystemExit("v0.15 comparison requires complete v3, v4, and v5 masks")
 
     floating_masks = {
         name: read_segmentation(path / "floating_segmentation_class_ids.png")
