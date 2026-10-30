@@ -92,8 +92,7 @@ Results are under `D:\radiation-edge-ai-data\scratch\perilipin2_m3c_poc_v1`. The
 
 ```powershell
 git fetch origin feature/perilipin2-windows-m3c-poc
-git switch feature/perilipin2-windows-m3c-poc
-git pull --ff-only
+git merge --ff-only FETCH_HEAD  # update only if the worktree has no diverging commits
 $Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
 $RunName = 'perilipin2_m3c_miniconda_v3'
 .\scripts\windows\run_perilipin2_m3c.ps1 -Stage Doctor -Python $Python
