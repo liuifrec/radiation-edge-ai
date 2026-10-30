@@ -31,6 +31,8 @@ WORK_MODEL = "nuclear_candidate.onnx"
 WORK_OPT = "nuclear_candidate.kneron.opt.onnx"
 DEFAULT_IMAGE = "kneron/toolchain:latest"  # local-only, never auto-pull
 SCHEMA = "perilipin2-m3c-windows-v1"
+# Kneron v0.33.1 / DNAi validated toolchain interpreter (NOT /usr/bin/python3).
+TOOLCHAIN_PYTHON = "/workspace/miniconda/bin/python"
 
 
 def sha256(path):
@@ -138,7 +140,9 @@ def doctor(args):
     probe = {"schema": SCHEMA, "stage": "doctor", "python": sys.executable,
              "host_libraries": libs, "docker_cli": bool(shutil.which("docker")),
              "image_reference": args.image, "image_id": None, "docker_engine": False,
-             "docker_python3": False, "physical_kl720_probe_performed": False}
+             "docker_toolchain_python": TOOLCHAIN_PYTHON,
+              "docker_toolchain_python_ready": False, "docker_toolchain_probe": None,
+              "physical_kl720_probe_performed": False}
     if probe["docker_cli"]:
         engine = subprocess.run(["docker", "info", "--format", "{{.ServerVersion}}"],
                                 capture_output=True, text=True, check=False)
@@ -147,11 +151,13 @@ def doctor(args):
             try:
                 probe["image_id"] = docker_image_identity(args.image)
                 py = subprocess.run(
-                    ["docker", "run", "--rm", "--pull", "never", "--entrypoint", "/bin/sh",
-                     probe["image_id"], "-c", "command -v python3"],
+                    ["docker", "run", "--rm", "--pull", "never", "--network", "none",
+                     "--entrypoint", TOOLCHAIN_PYTHON, probe["image_id"], "-c",
+                     "import onnx, ktc, kneronnxopt; print('Toolchain ONNX:', onnx.__version__)"],
                     capture_output=True, text=True, check=False,
                 )
-                probe["docker_python3"] = py.returncode == 0 and bool(py.stdout.strip())
+                probe["docker_toolchain_python_ready"] = py.returncode == 0
+                probe["docker_toolchain_probe"] = (py.stdout + py.stderr).strip()
             except ValueError:
                 pass
     print(json.dumps(probe, indent=2, sort_keys=True))
@@ -159,8 +165,8 @@ def doctor(args):
         print("Install ONNX/ONNX Runtime in the separate Windows engineering environment.")
     if not probe["image_id"]:
         print("No accessible local Kneron toolchain image; check Docker Desktop and the installed tag.")
-    elif not probe["docker_python3"]:
-        print("Kneron toolchain image is present but /usr/bin/python3 was not found.")
+    elif not probe["docker_toolchain_python_ready"]:
+        print("Kneron toolchain interpreter could not import onnx, ktc and kneronnxopt.")
     return 0
 
 
@@ -302,7 +308,7 @@ def evaluate(args):
     if (root / "WINDOWS_DOCKER_EXECUTION.json").exists():
         raise ValueError("Existing Windows execution receipt; use a fresh work directory")
     cmd = ["docker", "run", "--rm", "--pull", "never", "-v", str(root) + ":/data1",
-           "-w", "/data1", image_id, "python3", "/data1/perilipin2_m3c_runner.py",
+           "-w", "/data1", image_id, TOOLCHAIN_PYTHON, "/data1/perilipin2_m3c_runner.py",
            "docker-evaluate", "--work", "/data1", "--model-id", str(args.model_id),
            "--model-version", args.model_version]
     start = time.time()
