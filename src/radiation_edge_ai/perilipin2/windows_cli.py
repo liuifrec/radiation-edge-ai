@@ -138,7 +138,7 @@ def doctor(args):
     probe = {"schema": SCHEMA, "stage": "doctor", "python": sys.executable,
              "host_libraries": libs, "docker_cli": bool(shutil.which("docker")),
              "image_reference": args.image, "image_id": None, "docker_engine": False,
-             "physical_kl720_probe_performed": False}
+             "docker_python3": False, "physical_kl720_probe_performed": False}
     if probe["docker_cli"]:
         engine = subprocess.run(["docker", "info", "--format", "{{.ServerVersion}}"],
                                 capture_output=True, text=True, check=False)
@@ -146,6 +146,12 @@ def doctor(args):
         if probe["docker_engine"]:
             try:
                 probe["image_id"] = docker_image_identity(args.image)
+                py = subprocess.run(
+                    ["docker", "run", "--rm", "--pull", "never", "--entrypoint", "/bin/sh",
+                     probe["image_id"], "-c", "command -v python3"],
+                    capture_output=True, text=True, check=False,
+                )
+                probe["docker_python3"] = py.returncode == 0 and bool(py.stdout.strip())
             except ValueError:
                 pass
     print(json.dumps(probe, indent=2, sort_keys=True))
@@ -153,6 +159,8 @@ def doctor(args):
         print("Install ONNX/ONNX Runtime in the separate Windows engineering environment.")
     if not probe["image_id"]:
         print("No accessible local Kneron toolchain image; check Docker Desktop and the installed tag.")
+    elif not probe["docker_python3"]:
+        print("Kneron toolchain image is present but /usr/bin/python3 was not found.")
     return 0
 
 
@@ -294,7 +302,7 @@ def evaluate(args):
     if (root / "WINDOWS_DOCKER_EXECUTION.json").exists():
         raise ValueError("Existing Windows execution receipt; use a fresh work directory")
     cmd = ["docker", "run", "--rm", "--pull", "never", "-v", str(root) + ":/data1",
-           "-w", "/data1", image_id, "python", "/data1/perilipin2_m3c_runner.py",
+           "-w", "/data1", image_id, "python3", "/data1/perilipin2_m3c_runner.py",
            "docker-evaluate", "--work", "/data1", "--model-id", str(args.model_id),
            "--model-version", args.model_version]
     start = time.time()
