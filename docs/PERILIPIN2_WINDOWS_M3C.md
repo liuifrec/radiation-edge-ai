@@ -86,7 +86,20 @@ cd C:\Users\yul03\Projects\radiation-edge-ai
 .\scripts\windows\run_perilipin2_m3c.ps1 -Stage Parity
 ```
 
-Results are under `D:\radiation-edge-ai-data\scratch\perilipin2_m3c_poc_v1`. The workflow is **new-only**: never delete results to rerun an earlier stage; use a new `-RunName` such as `perilipin2_m3c_trial2`. The Docker image is inspected for its actual image ID and invoked by that immutable local ID with `--pull never`; any difference between model bytes and the frozen manifest stops processing. The Docker helper is copied into the work directory and hash bound at intake.
+Results are under `D:\radiation-edge-ai-data\scratch\perilipin2_m3c_poc_v1`. The workflow is **new-only**: never delete results to rerun an earlier stage; use a new `-RunName` such as `perilipin2_m3c_trial2`. The Docker image is inspected for its actual image ID and invoked by that immutable local ID with `--pull never`; any difference between model bytes and the frozen manifest stops processing. The evaluator uses the **validated Kneron Toolchain v0.33.1 interpreter** at `/workspace/miniconda/bin/python` (Python 3.7.15, observed ONNX 1.7.0), rather than `/usr/bin/python3`. `Doctor` probes that interpreter with `import onnx, ktc, kneronnxopt` before an evaluation attempt. Do not install additional ONNX packages into system Python in Docker. The Docker helper is copied into the work directory and hash bound at intake.
+
+**After a failed evaluation:** preserve the failed work directory and its `WINDOWS_DOCKER_EXECUTION.json` / `WINDOWS_DOCKER_CONSOLE.txt`; its runner was copied and hash-frozen at import. After changing the repository runner, first fetch the branch and create an **entirely new** `-RunName` using the original source folder (`-Stage Import`), then `-Stage Evaluate`. Never edit the copied runner or delete the older result to force reuse. For example:
+
+```powershell
+git fetch origin feature/perilipin2-windows-m3c-poc
+git switch feature/perilipin2-windows-m3c-poc
+git pull --ff-only
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$RunName = 'perilipin2_m3c_miniconda_v3'
+.\scripts\windows\run_perilipin2_m3c.ps1 -Stage Doctor -Python $Python
+.\scripts\windows\run_perilipin2_m3c.ps1 -Stage Import -RunName $RunName -Python $Python -SourceFolder 'D:\radiation-edge-ai-data\models\perilipin2\m3b_poc_v1'
+.\scripts\windows\run_perilipin2_m3c.ps1 -Stage Evaluate -RunName $RunName -Python $Python
+```
 
 For device discovery, separate from Docker/model graph evaluation:
 
