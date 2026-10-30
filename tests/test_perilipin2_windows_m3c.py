@@ -70,7 +70,7 @@ class M3CWindowsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Original model changed"):
                 w.check_bundle(root)
 
-    def test_doctor_reports_container_python3_probe(self):
+    def test_doctor_reports_verified_kneron_miniconda_probe(self):
         calls = []
         def fake_run(cmd, *args, **kwargs):
             calls.append(cmd)
@@ -79,15 +79,35 @@ class M3CWindowsTest(unittest.TestCase):
             if cmd[:3] == ["docker", "image", "inspect"]:
                 return types.SimpleNamespace(returncode=0, stdout="sha256:pinned\n", stderr="")
             if cmd[:2] == ["docker", "run"]:
-                return types.SimpleNamespace(returncode=0, stdout="/usr/bin/python3\n", stderr="")
+                return types.SimpleNamespace(returncode=0, stdout="Toolchain ONNX: 1.7.0\n", stderr="")
             raise AssertionError(cmd)
         with mock.patch.object(w.shutil, "which", return_value="docker"):
             with mock.patch.object(w.subprocess, "run", side_effect=fake_run):
                 with mock.patch("builtins.print") as out:
                     self.assertEqual(w.doctor(argparse.Namespace(image="kneron/toolchain:latest")), 0)
         doctor_json = json.loads(out.call_args_list[0].args[0])
-        self.assertTrue(doctor_json["docker_python3"])
-        self.assertTrue(any("command -v python3" in x for cmd in calls for x in cmd))
+        self.assertTrue(doctor_json["docker_toolchain_python_ready"])
+        self.assertEqual(doctor_json["docker_toolchain_python"], w.TOOLCHAIN_PYTHON)
+        self.assertIn("1.7.0", doctor_json["docker_toolchain_probe"])
+        self.assertTrue(any(w.TOOLCHAIN_PYTHON in cmd for cmd in calls))
+        self.assertTrue(any("import onnx, ktc, kneronnxopt" in x for cmd in calls for x in cmd))
+
+    def test_doctor_flags_toolchain_import_failure(self):
+        def fake_run(cmd, *args, **kwargs):
+            if cmd[:2] == ["docker", "info"]:
+                return types.SimpleNamespace(returncode=0, stdout="27.0", stderr="")
+            if cmd[:3] == ["docker", "image", "inspect"]:
+                return types.SimpleNamespace(returncode=0, stdout="sha256:pinned\n", stderr="")
+            if cmd[:2] == ["docker", "run"]:
+                return types.SimpleNamespace(returncode=1, stdout="", stderr="ModuleNotFoundError: onnx")
+            raise AssertionError(cmd)
+        with mock.patch.object(w.shutil, "which", return_value="docker"):
+            with mock.patch.object(w.subprocess, "run", side_effect=fake_run):
+                with mock.patch("builtins.print") as out:
+                    self.assertEqual(w.doctor(argparse.Namespace(image="kneron/toolchain:latest")), 0)
+        probe = json.loads(out.call_args_list[0].args[0])
+        self.assertFalse(probe["docker_toolchain_python_ready"])
+        self.assertIn("onnx", probe["docker_toolchain_probe"])
 
     def test_doctor_without_docker_does_not_pretend_device_pass(self):
         with mock.patch.object(w.shutil, "which", return_value=None):
@@ -167,8 +187,9 @@ class M3CWindowsIntegrationTest(unittest.TestCase):
             cmd = runner.call_args[0][0]
             self.assertEqual(cmd[cmd.index("-w")+1], "/data1")
             self.assertIn("sha256:pinned", cmd)
-            self.assertIn("python3", cmd)
-            self.assertNotIn("python", cmd[cmd.index("sha256:pinned")+1:cmd.index("sha256:pinned")+2])
+            self.assertIn(w.TOOLCHAIN_PYTHON, cmd)
+            self.assertNotIn("python3", cmd)
+            self.assertEqual(cmd[cmd.index("sha256:pinned")+1], w.TOOLCHAIN_PYTHON)
             self.assertIn("--pull", cmd)
             self.assertNotIn("kneron/toolchain:v0.33.1", cmd)
             report = w.read_json(root / "WINDOWS_DOCKER_EXECUTION.json")
