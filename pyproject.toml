@@ -18,6 +18,10 @@ dependencies = [
 analysis = [
     "Pillow>=9",
 ]
+perilipin2 = [
+    "onnx>=1.12",
+    "onnxruntime>=1.12",
+]
 dev = [
     "pytest>=7",
     "ruff>=0.5",
