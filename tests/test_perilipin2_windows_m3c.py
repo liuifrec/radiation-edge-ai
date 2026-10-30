@@ -70,6 +70,25 @@ class M3CWindowsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Original model changed"):
                 w.check_bundle(root)
 
+    def test_doctor_reports_container_python3_probe(self):
+        calls = []
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            if cmd[:2] == ["docker", "info"]:
+                return types.SimpleNamespace(returncode=0, stdout="27.0", stderr="")
+            if cmd[:3] == ["docker", "image", "inspect"]:
+                return types.SimpleNamespace(returncode=0, stdout="sha256:pinned\n", stderr="")
+            if cmd[:2] == ["docker", "run"]:
+                return types.SimpleNamespace(returncode=0, stdout="/usr/bin/python3\n", stderr="")
+            raise AssertionError(cmd)
+        with mock.patch.object(w.shutil, "which", return_value="docker"):
+            with mock.patch.object(w.subprocess, "run", side_effect=fake_run):
+                with mock.patch("builtins.print") as out:
+                    self.assertEqual(w.doctor(argparse.Namespace(image="kneron/toolchain:latest")), 0)
+        doctor_json = json.loads(out.call_args_list[0].args[0])
+        self.assertTrue(doctor_json["docker_python3"])
+        self.assertTrue(any("command -v python3" in x for cmd in calls for x in cmd))
+
     def test_doctor_without_docker_does_not_pretend_device_pass(self):
         with mock.patch.object(w.shutil, "which", return_value=None):
             with mock.patch("builtins.print") as out:
@@ -148,6 +167,8 @@ class M3CWindowsIntegrationTest(unittest.TestCase):
             cmd = runner.call_args[0][0]
             self.assertEqual(cmd[cmd.index("-w")+1], "/data1")
             self.assertIn("sha256:pinned", cmd)
+            self.assertIn("python3", cmd)
+            self.assertNotIn("python", cmd[cmd.index("sha256:pinned")+1:cmd.index("sha256:pinned")+2])
             self.assertIn("--pull", cmd)
             self.assertNotIn("kneron/toolchain:v0.33.1", cmd)
             report = w.read_json(root / "WINDOWS_DOCKER_EXECUTION.json")
