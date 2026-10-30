@@ -107,6 +107,36 @@ def support_label(count: int) -> str:
     return "no-human-match"
 
 
+def validate_v015_bio_root(root: Path, sample_id: str) -> Path:
+    """Accept only a completed, isolated, three-field v0.15 biological run."""
+    root = root.resolve()
+    if root.name != "biological_fidelity_v015_3dev":
+        raise SystemExit("v0.15 root must be biological_fidelity_v015_3dev")
+    expected = {"1__tile_4", "2__tile_9", "16__tile_5"}
+    if sample_id not in expected:
+        raise SystemExit("v0.15 only permits the three predeclared fields")
+    bio_summary = root / "summary.json"
+    if not bio_summary.is_file():
+        raise FileNotFoundError(bio_summary)
+    report = json.loads(bio_summary.read_text(encoding="utf-8"))
+    if report.get("n_complete_images") != 3:
+        raise SystemExit("v0.15 biological summary must include exactly three fields")
+    image_csv = root / "per_image.csv"
+    if not image_csv.is_file():
+        raise FileNotFoundError(image_csv)
+    with image_csv.open(encoding="utf-8", newline="") as stream:
+        observed = list(csv.DictReader(stream))
+    if len(observed) != 3 or {row["sample_id"] for row in observed} != expected:
+        raise SystemExit("v0.15 biological summary must contain three frozen samples")
+    candidate_masks = (
+        root / sample_id / "floating_segmentation_class_ids.png",
+        root / sample_id / "bie_segmentation_class_ids.png",
+    )
+    if not all(path.is_file() for path in candidate_masks):
+        raise SystemExit("v0.15 candidate stitched masks are incomplete")
+    return root / sample_id
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     default_data_root = Path(
@@ -119,6 +149,13 @@ def main() -> int:
     parser.add_argument("--data-root", default=str(default_data_root))
     parser.add_argument("--model-root", default=str(default_model_root))
     parser.add_argument("--output", default=None)
+    parser.add_argument(
+        "--v015-biological-root", default=None,
+        help=(
+            "Optional v0.15 finished biological_fidelity_v015_3dev directory; "
+            "compare its v5 segmentation against unchanged v1-v4 variants"
+        ),
+    )
     args = parser.parse_args()
 
     data_root = Path(args.data_root)
@@ -138,6 +175,10 @@ def main() -> int:
         "v3": kneron_root / "int8_512_v3_pct100" / "biological_fidelity" / args.sample_id,
         "v4": kneron_root / "int8_512_v4_bias" / "biological_fidelity" / args.sample_id,
     }
+    if args.v015_biological_root is not None:
+        version_dirs["v5"] = validate_v015_bio_root(
+            Path(args.v015_biological_root), args.sample_id
+        )
     available = {
         name: path
         for name, path in version_dirs.items()
@@ -146,6 +187,8 @@ def main() -> int:
     }
     if not available:
         raise RuntimeError("No completed biological-fidelity variant directories found")
+    if args.v015_biological_root is not None and not {"v3", "v4", "v5"}.issubset(available):
+        raise SystemExit("v0.15 comparison requires complete v3, v4, and v5 masks")
 
     floating_masks = {
         name: read_segmentation(path / "floating_segmentation_class_ids.png")
@@ -280,7 +323,10 @@ def main() -> int:
         )
 
     print("")
-    latest = "v4" if "v4" in available else list(available)[-1]
+    latest = (
+        "v5" if "v5" in available else
+        "v4" if "v4" in available else list(available)[-1]
+    )
     missed_indices = [
         i for i in range(len(fp_fibers)) if i not in fp_to_bie[latest]
     ]
