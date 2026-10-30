@@ -351,3 +351,114 @@ anchors: `2__tile_9` FP-local #2 and #6, `16__tile_5` FP-local #1.
 Do not mistake the v5 simulator for physical KL720 measurements or this
 already-characterized panel for an independent confirmation.
 
+## 2026-10-30 simulator PASS and v5 biological-fidelity gate
+
+The investigator completed the exact 27-window INT16-output BIE
+software simulation. Both script-level checks and an independent
+Windows receipt replay passed:
+
+- `V015_BIE_27_WINDOWS_SHA_BOUND: PASS`
+- `V015_SIMULATOR_VERIFIED`, 27/27 windows
+- 15,644 raw pre-stitch class-label disagreements in 7,077,888 window pixels
+- Mean argmax agreement 0.9977897361472801
+- Mean centered-logit RMSE 0.6522571479149669
+- Candidate BIE SHA256 a4986b71e48305b19f21f576c25cd6fc02e66f5aa5cf35c6e076dba252b53e9c
+- Software-simulator latency is **not** physical KL720 latency.
+
+Raw disagreements per field (nine windows each):
+`1__tile_4=1472`, `2__tile_9=9701`, `16__tile_5=4471`.
+The first field's historical v3 saved-pair raw sum was 1463,
+but old simulator outputs lack the same contemporaneous provenance,
+so the +9 difference is descriptive, not a hardware-fidelity claim.
+
+### Biological postprocessing (Windows DNAi environment; no new KTC inference)
+
+The *existing* `evaluate_bie_biological_fidelity_512.py` automatically
+recognizes only image groups for which **all nine** floating and BIE
+windows exist. Here, the candidate scratch has precisely the three
+prespecified development fields (manifest image indices 0, 1, 18).
+Do not use `--limit-images 3`: it is not needed and could mask
+an unintended extra complete field. Check exact sample IDs afterward.
+All stitched probabilities, masks and reports must go into a fresh
+`biological_fidelity_v015_3dev` directory **under the same scratch run**.
+
+```powershell
+Set-Location 'C:\Users\yul03\Projects\radiation-edge-ai'
+$ErrorActionPreference = 'Stop'
+git switch feature/v0.15-dnai-int16out-preflight
+if ($LASTEXITCODE -ne 0) { throw 'git switch failed' }
+git pull --ff-only
+if ($LASTEXITCODE -ne 0) { throw 'git update failed' }
+$Py = 'D:\radiation-edge-ai-data\envs\dnai311\Scripts\python.exe'
+$Root = 'D:\radiation-edge-ai-data'
+$Model = Join-Path $Root 'models\dnai\unet_mobileone_s1\kneron'
+$Run = Join-Path $Root 'scratch\dnai_v015_int16out_20261029_135302'
+$Sim = Join-Path $Run 'bie_validation_v015_3dev'
+$Bio = Join-Path $Run 'biological_fidelity_v015_3dev'
+$Manifest = Join-Path $Model 'int8_512\validation_512_overlap50\validation_windows_manifest.json'
+if (-not (Test-Path $Py) -or -not (Test-Path $Manifest)) { throw 'Missing DNAi environment or source manifest' }
+if (Test-Path $Bio) { throw 'Do not overwrite existing v5 biological results' }
+$Receipt = Get-Content (Join-Path $Sim 'summary.json') -Raw | ConvertFrom-Json
+$Rows = @(Import-Csv (Join-Path $Sim 'per_window.csv'))
+$Expected = @('1__tile_4','2__tile_9','16__tile_5')
+if ($Receipt.n_windows -ne 27 -or $Rows.Count -ne 27 -or
+    $Receipt.v015_strict_provenance.n_window_receipts -ne 27 -or
+    $Receipt.bie_sha256 -ine 'a4986b71e48305b19f21f576c25cd6fc02e66f5aa5cf35c6e076dba252b53e9c') {
+    throw 'Invalid simulator provenance'
+}
+$Actual = @($Rows | Select-Object -ExpandProperty sample_id -Unique | Sort-Object)
+if ((@($Actual) -join ',') -ne ((@($Expected | Sort-Object)) -join ',')) {
+    throw 'Unexpected simulator sample IDs'
+}
+$Script = 'src/radiation_edge_ai/dna_fiber/evaluate_bie_biological_fidelity_512.py'
+& $Py -B $Script --validation-manifest $Manifest --bie-run-dir $Sim --output $Bio --data-root (Join-Path $Root 'data')
+if ($LASTEXITCODE -ne 0) { throw 'v5 postprocessing failed; preserve scratch' }
+$Summary = Get-Content (Join-Path $Bio 'summary.json') -Raw | ConvertFrom-Json
+$PerImage = @(Import-Csv (Join-Path $Bio 'per_image.csv'))
+if ($Summary.n_complete_images -ne 3 -or $PerImage.Count -ne 3 -or
+    ((@($PerImage.sample_id | Sort-Object) -join ',') -ne ((@($Expected | Sort-Object)) -join ','))) {
+    throw 'Unexpected v5 biological sample set'
+}
+$PerImage | Select-Object sample_id,floating_512_valid_fibers,bie_512_valid_fibers,bie_vs_floating_fiber_f1,fp_vs_bie_seg_dice_fg | Format-Table -AutoSize
+$Summary.fp_vs_bie | Format-List
+$Summary.ai_vs_human | Format-List
+```
+
+Before running the evaluator, the already-passed simulator output
+hash checks can be repeated if any files changed since the simulator.
+The evaluator itself verifies each H1–H4 source annotation SHA256
+before using it. Keep the historical v3/v4 results untouched.
+
+### Human-supported fiber-identity comparison
+
+The `diagnose_int8_fiber_disagreements.py` script has the additive
+`--v015-biological-root` flag. It requires a complete three-sample
+`biological_fidelity_v015_3dev` summary, three matching `per_image.csv`
+sample IDs, candidate floating/BIE segmentation masks and all
+v3/v4 source masks. It rejects any differences among the historical
+and v5 *floating* reference masks before computing individual
+v3/v4/v5 fiber identities. Without this new flag, legacy behavior
+is unchanged.
+
+```powershell
+$Diag = 'src/radiation_edge_ai/dna_fiber/diagnose_int8_fiber_disagreements.py'
+$OutRoot = Join-Path $Run 'v015_fiber_identity'
+if (Test-Path $OutRoot) { throw 'Preserve prior diagnostic output; never overwrite' }
+foreach ($sample in @('1__tile_4','2__tile_9','16__tile_5')) {
+    $Out = Join-Path $OutRoot $sample
+    & $Py -B $Diag --sample-id $sample --v015-biological-root $Bio --output $Out
+    if ($LASTEXITCODE -ne 0) { throw ('Identity diagnostic failed: ' + $sample) }
+}
+```
+
+Review each `fp_fiber_retention_and_human_support.csv` for
+v3/v4/v5 retained flags and H1–H4 support. The prespecified
+3/4-supported anchors are `2__tile_9` local #02 and #06 and
+`16__tile_5` local #01. Count any newly lost 3/4-supported
+FP512 fibers as a failure of the directional screen. Compare the
+3-sample v3/v4/v5 mean matched-fiber length/ratio errors and
+human-detection F1 on matched samples, *not* unpaired aggregate summaries.
+
+**STOP:** This is a postprocessing development screen only. No NEF
+and no KL720 physical testing until review. The historical
+20-image PTQ selection/characterization panel is not a fresh holdout.
