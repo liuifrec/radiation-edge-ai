@@ -109,6 +109,30 @@ For device discovery, separate from Docker/model graph evaluation:
 
 Adjust that interpreter to the **actual** validated Kneron PLUS Python on your machine. Hardware probing scans devices only; it does not load a Perilipin2 NEF.
 
+## Doctor that appears to hang
+
+The Doctor is not physical KL720 inference: it checks Docker, the installed image,
+and a Kneron Python import/optimizer interface. Earlier M3C versions silently
+captured the Docker import output and had no subprocess timeout. On a slow or blocked
+vendor import this appeared as an indefinitely frozen PowerShell prompt.
+
+The current Doctor prints `[Doctor] Checking Docker daemon...`,
+`[Doctor] Inspecting local Kneron image...`, and
+`[Doctor] Importing Kneron toolchain and checking optimizer...`.
+The first two Docker metadata subprocesses have 20-second limits; the last
+Kneron Docker import probe has a 90-second limit. On that timeout only the
+uniquely named temporary `radedge-perilipin2-probe-*` container is targeted
+for cleanup; the original ONNX, existing runs, DNAi and NASA assets are untouched.
+The JSON reports `docker_toolchain_python_ready: false` and
+`M3C_TOOLCHAIN_PROBE_TIMEOUT`. Do **not** advance to Evaluate when that
+field is false. The actual model optimizer may still take longer after the
+preflight passes; the model evaluation has no engineering performance promise.
+
+A Doctor retry only requires fetching the updated worktree; no M3B model re-import.
+If a previous Evaluate attempt was made, its imported runner is separately
+hash-frozen and must be preserved. Re-import under a new `-RunName` after
+updating the repository runner; never edit the frozen runner in place.
+
 ## 4. Inspection and evidence gates
 
 - `M3C_HOST_READY.json`: parity result SHA256, exact 1×3×512×512 input and 1×2×512×512 logits output, graph operators and runner identity.
