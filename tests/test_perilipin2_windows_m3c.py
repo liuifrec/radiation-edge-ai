@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import types
@@ -16,6 +17,14 @@ from radiation_edge_ai.perilipin2 import windows_cli as w  # noqa: E402
 
 
 class M3CWindowsTest(unittest.TestCase):
+    @staticmethod
+    def doctor_result(print_mock):
+        text = next(
+            call.args[0] for call in print_mock.call_args_list
+            if call.args and isinstance(call.args[0], str) and call.args[0].startswith("{\n")
+        )
+        return json.loads(text)
+
     def receipt(self, digest="0" * 64):
         return {"onnx_sha256": digest, "onnxruntime_parity_pass": True,
                 "onnxruntime_parity_max_abs_error": 1e-5,
@@ -84,7 +93,7 @@ class M3CWindowsTest(unittest.TestCase):
             with mock.patch.object(w.subprocess, "run", side_effect=fake_run):
                 with mock.patch("builtins.print") as out:
                     self.assertEqual(w.doctor(argparse.Namespace(image="kneron/toolchain:latest")), 0)
-        doctor_json = json.loads(out.call_args_list[0].args[0])
+        doctor_json = self.doctor_result(out)
         self.assertTrue(doctor_json["docker_toolchain_python_ready"])
         self.assertEqual(doctor_json["docker_toolchain_python"], w.TOOLCHAIN_PYTHON)
         self.assertIn("1.7.0", doctor_json["docker_toolchain_probe"])
@@ -100,6 +109,32 @@ class M3CWindowsTest(unittest.TestCase):
             actual, backend = w.optimize_model(model, ktc)
         self.assertIs(actual, optimized)
         self.assertEqual(backend, "ktc.onnx_optimizer.onnx2onnx_flow")
+
+    def test_toolchain_probe_timeout_is_bounded_and_targeted_container_removed(self):
+        commands = []
+
+        def fake_run(cmd, **kwargs):
+            commands.append((cmd, kwargs))
+            if cmd[:2] == ["docker", "run"]:
+                raise subprocess.TimeoutExpired(
+                    cmd, timeout=kwargs["timeout"], output=b"TensorFlow initialization..."
+                )
+            if cmd[:3] == ["docker", "rm", "-f"]:
+                return types.SimpleNamespace(returncode=0, stdout="removed", stderr="")
+            raise AssertionError(cmd)
+
+        with mock.patch.object(w.subprocess, "run", side_effect=fake_run):
+            ready, details = w.probe_toolchain_python("sha256:pinned")
+        self.assertFalse(ready)
+        self.assertIn("M3C_TOOLCHAIN_PROBE_TIMEOUT", details)
+        self.assertIn("TensorFlow initialization", details)
+        self.assertIn("Targeted probe cleanup exit code: 0", details)
+        run, run_opts = commands[0]
+        cleanup, cleanup_opts = commands[1]
+        self.assertEqual(run_opts["timeout"], w.DOCKER_PROBE_TIMEOUT_SECONDS)
+        self.assertEqual(run[run.index("--name") + 1], cleanup[3])
+        self.assertEqual(cleanup_opts["timeout"], 10)
+        self.assertIn("--network", run)
 
     def test_missing_both_optimizers_refuses_to_continue(self):
         with mock.patch.dict(sys.modules, {"kneronnxopt": None}):
@@ -119,7 +154,7 @@ class M3CWindowsTest(unittest.TestCase):
             with mock.patch.object(w.subprocess, "run", side_effect=fake_run):
                 with mock.patch("builtins.print") as out:
                     self.assertEqual(w.doctor(argparse.Namespace(image="kneron/toolchain:latest")), 0)
-        probe = json.loads(out.call_args_list[0].args[0])
+        probe = self.doctor_result(out)
         self.assertFalse(probe["docker_toolchain_python_ready"])
         self.assertIn("onnx", probe["docker_toolchain_probe"])
 
@@ -127,7 +162,7 @@ class M3CWindowsTest(unittest.TestCase):
         with mock.patch.object(w.shutil, "which", return_value=None):
             with mock.patch("builtins.print") as out:
                 self.assertEqual(w.doctor(argparse.Namespace(image="kneron/toolchain:latest")), 0)
-            doctor_json = json.loads(out.call_args_list[0].args[0])
+            doctor_json = self.doctor_result(out)
             self.assertFalse(doctor_json["physical_kl720_probe_performed"])
             self.assertFalse(doctor_json["docker_cli"])
             self.assertIsNone(doctor_json["image_id"])
