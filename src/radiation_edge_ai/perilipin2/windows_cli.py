@@ -30,6 +30,49 @@ WORK_MODEL = "nuclear_candidate.onnx"
 WORK_OPT = "nuclear_candidate.kneron.opt.onnx"
 DEFAULT_IMAGE = "kneron/toolchain:latest"  # local-only, never auto-pull
 SCHEMA = "perilipin2-m3c-windows-v1"
+
+# Original DNAi/NASA Kneron v0.33.1 image provides a legacy optimizer via ktc.
+# This probe and adapter intentionally do not modify the vendor environment.
+TOOLCHAIN_PROBE_CODE = "\n".join((
+    "import onnx, ktc",
+    "try:",
+    "    import kneronnxopt",
+    "except ImportError:",
+    "    kneronnxopt = None",
+    "standalone = getattr(kneronnxopt, 'optimize', None)",
+    "legacy = getattr(getattr(ktc, 'onnx_optimizer', None), 'onnx2onnx_flow', None)",
+    "if callable(standalone):",
+    "    backend = 'kneronnxopt.optimize'",
+    "elif callable(legacy):",
+    "    backend = 'ktc.onnx_optimizer.onnx2onnx_flow'",
+    "else:",
+    "    raise RuntimeError('Neither supported Kneron optimizer is available')",
+    "print('Toolchain ONNX: {} optimizer: {}'.format(onnx.__version__, backend))",
+))
+
+
+def probe_toolchain_python(image_id):
+    """Read-only Docker probe of the interpreter + either supported optimizer."""
+    cmd = ["docker", "run", "--rm", "--pull", "never", "--network", "none",
+           "--entrypoint", TOOLCHAIN_PYTHON, image_id, "-c", TOOLCHAIN_PROBE_CODE]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    return result.returncode == 0, (result.stdout + result.stderr).strip()
+
+
+def optimize_model(model, ktc):
+    """Use the vendor optimizer interface available in the pinned image."""
+    try:
+        import kneronnxopt
+    except ImportError:
+        kneronnxopt = None
+    standalone = getattr(kneronnxopt, "optimize", None)
+    if callable(standalone):
+        return standalone(model), "kneronnxopt.optimize"
+    legacy = getattr(getattr(ktc, "onnx_optimizer", None), "onnx2onnx_flow", None)
+    if callable(legacy):
+        return legacy(model), "ktc.onnx_optimizer.onnx2onnx_flow"
+    raise ValueError("Neither supported Kneron optimizer is available")
+
 # Kneron v0.33.1 / DNAi validated toolchain interpreter (NOT /usr/bin/python3).
 TOOLCHAIN_PYTHON = "/workspace/miniconda/bin/python"
 
@@ -149,14 +192,9 @@ def doctor(args):
         if probe["docker_engine"]:
             try:
                 probe["image_id"] = docker_image_identity(args.image)
-                py = subprocess.run(
-                    ["docker", "run", "--rm", "--pull", "never", "--network", "none",
-                     "--entrypoint", TOOLCHAIN_PYTHON, probe["image_id"], "-c",
-                     "import onnx, ktc, kneronnxopt; print('Toolchain ONNX:', onnx.__version__)"],
-                    capture_output=True, text=True, check=False,
-                )
-                probe["docker_toolchain_python_ready"] = py.returncode == 0
-                probe["docker_toolchain_probe"] = (py.stdout + py.stderr).strip()
+                ready, message = probe_toolchain_python(probe["image_id"])
+                probe["docker_toolchain_python_ready"] = ready
+                probe["docker_toolchain_probe"] = message
             except ValueError:
                 pass
     print(json.dumps(probe, indent=2, sort_keys=True))
@@ -165,7 +203,7 @@ def doctor(args):
     if not probe["image_id"]:
         print("No accessible local Kneron toolchain image; check Docker Desktop and the installed tag.")
     elif not probe["docker_toolchain_python_ready"]:
-        print("Kneron toolchain interpreter could not import onnx, ktc and kneronnxopt.")
+        print("Kneron toolchain interpreter cannot import ONNX/KTC or expose a supported optimizer.")
     return 0
 
 
@@ -245,7 +283,6 @@ def inspect_cpu_partitions(path):
 
 def docker_evaluate(args):
     import onnx
-    import kneronnxopt
     import ktc
     root, receipt = check_bundle(args.work)
     model_file = root / WORK_MODEL
@@ -257,7 +294,8 @@ def docker_evaluate(args):
     if opt.exists() or ev_file.exists():
         raise ValueError("Refusing to overwrite an earlier Kneron evaluation")
     print("Kneron optimizer starting for KL720", flush=True)
-    optimized = kneronnxopt.optimize(model)
+    optimized, optimizer_backend = optimize_model(model, ktc)
+    print("Optimizer backend:", optimizer_backend, flush=True)
     onnx.checker.check_model(optimized)
     opt_contract = graph_contract(optimized)
     validate_contract(opt_contract)
@@ -287,6 +325,7 @@ def docker_evaluate(args):
               "original_sha256": receipt["model_sha256"], "optimized_sha256": sha256(opt),
               "runner_sha256": receipt["runner_sha256"], "model_id": args.model_id,
               "model_version": args.model_version, "platform": "720",
+              "optimizer_backend": optimizer_backend,
               "before": graph_contract(model), "after": opt_contract,
               "artifact_sha256": collected, "n_cpu_partition_rows": len(cpu),
               "cpu_partition_rows": cpu, "ioinfo_found": ioinfo.is_file(),
@@ -306,22 +345,33 @@ def evaluate(args):
     image_id = docker_image_identity(args.image)
     if (root / "WINDOWS_DOCKER_EXECUTION.json").exists():
         raise ValueError("Existing Windows execution receipt; use a fresh work directory")
-    cmd = ["docker", "run", "--rm", "--pull", "never", "-v", str(root) + ":/data1",
-           "-w", "/data1", image_id, TOOLCHAIN_PYTHON, "/data1/perilipin2_m3c_runner.py",
+    ready, message = probe_toolchain_python(image_id)
+    if not ready:
+        raise ValueError("Kneron toolchain preflight failed: " + message)
+    print("Kneron toolchain ready:", message, flush=True)
+    cmd = ["docker", "run", "--rm", "--pull", "never", "--network", "none",
+           "-v", str(root) + ":/data1", "-w", "/data1",
+           image_id, TOOLCHAIN_PYTHON, "-u", "/data1/perilipin2_m3c_runner.py",
            "docker-evaluate", "--work", "/data1", "--model-id", str(args.model_id),
            "--model-version", args.model_version]
     start = time.time()
-    run = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
-    (root / "WINDOWS_DOCKER_CONSOLE.txt").write_text(run.stdout or "", encoding="utf-8")
-    if run.stdout:
-        print(run.stdout)
+    print("Starting Docker evaluator; output streams to console and work log.", flush=True)
+    log_path = root / "WINDOWS_DOCKER_CONSOLE.txt"
+    with log_path.open("x", encoding="utf-8") as log:
+        with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              text=True, bufsize=1) as process:
+            for line in process.stdout:
+                log.write(line)
+                log.flush()
+                print(line, end="", flush=True)
+            exit_code = process.wait()
     status = {"schema": SCHEMA, "stage": "evaluate", "image_reference": args.image,
               "docker_image_id": image_id, "model_sha256": receipt["model_sha256"],
-              "toolchain_run_exit_code": run.returncode, "elapsed_seconds": time.time() - start,
+              "toolchain_run_exit_code": exit_code, "elapsed_seconds": time.time() - start,
               "evaluation_receipt_exists": (root / "M3C_KNERON_EVAL_RECEIPT.json").is_file(),
               "bie_generated": False, "nef_compiled": False, "physical_kl720_inference": False}
     dump_json_new(root / "WINDOWS_DOCKER_EXECUTION.json", status)
-    if run.returncode != 0 or not status["evaluation_receipt_exists"]:
+    if exit_code != 0 or not status["evaluation_receipt_exists"]:
         raise ValueError("Kneron evaluate() did not complete; see WINDOWS_DOCKER_CONSOLE.txt")
     check_bundle(root, need_optimized=True)
     print("M3C_WINDOWS_DOCKER_EVALUATE_COMPLETE_NOT_QUANTIZED")
