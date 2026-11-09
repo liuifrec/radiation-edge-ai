@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sys
 import tempfile
@@ -88,7 +89,22 @@ class M3CWindowsTest(unittest.TestCase):
         self.assertEqual(doctor_json["docker_toolchain_python"], w.TOOLCHAIN_PYTHON)
         self.assertIn("1.7.0", doctor_json["docker_toolchain_probe"])
         self.assertTrue(any(w.TOOLCHAIN_PYTHON in cmd for cmd in calls))
-        self.assertTrue(any("import onnx, ktc, kneronnxopt" in x for cmd in calls for x in cmd))
+        self.assertTrue(any("onnx2onnx_flow" in x for cmd in calls for x in cmd))
+
+    def test_legacy_ktc_optimizer_supported_without_standalone_module(self):
+        model = object()
+        optimized = object()
+        ktc = types.SimpleNamespace(onnx_optimizer=types.SimpleNamespace(
+            onnx2onnx_flow=lambda value: optimized if value is model else None))
+        with mock.patch.dict(sys.modules, {"kneronnxopt": None}):
+            actual, backend = w.optimize_model(model, ktc)
+        self.assertIs(actual, optimized)
+        self.assertEqual(backend, "ktc.onnx_optimizer.onnx2onnx_flow")
+
+    def test_missing_both_optimizers_refuses_to_continue(self):
+        with mock.patch.dict(sys.modules, {"kneronnxopt": None}):
+            with self.assertRaisesRegex(ValueError, "Neither supported"):
+                w.optimize_model(object(), types.SimpleNamespace())
 
     def test_doctor_flags_toolchain_import_failure(self):
         def fake_run(cmd, *args, **kwargs):
@@ -177,17 +193,28 @@ class M3CWindowsIntegrationTest(unittest.TestCase):
             (root / "M3C_HOST_READY.json").write_text(json.dumps(data))
             args = argparse.Namespace(work=str(root), image="kneron/toolchain:v0.33.1", model_id=32785,
                                       model_version="0001")
-            error = types.SimpleNamespace(returncode=6, stdout="compiler unsupported op")
+            process = mock.MagicMock()
+            process.__enter__.return_value = process
+            process.stdout = io.StringIO("compiler unsupported op\\n")
+            process.wait.return_value = 6
             with mock.patch.object(w, "docker_image_identity", return_value="sha256:pinned"):
-                with mock.patch.object(w.subprocess, "run", return_value=error) as runner:
-                    with self.assertRaisesRegex(ValueError, "did not complete"):
-                        w.evaluate(args)
+                with mock.patch.object(w, "probe_toolchain_python",
+                                       return_value=(True, "Toolchain ONNX: 1.7.0")):
+                    with mock.patch.object(w.subprocess, "Popen", return_value=process) as runner:
+                        with self.assertRaisesRegex(ValueError, "did not complete"):
+                            w.evaluate(args)
             cmd = runner.call_args[0][0]
             self.assertEqual(cmd[cmd.index("-w")+1], "/data1")
             self.assertIn("sha256:pinned", cmd)
             self.assertIn(w.TOOLCHAIN_PYTHON, cmd)
             self.assertNotIn("python3", cmd)
             self.assertEqual(cmd[cmd.index("sha256:pinned")+1], w.TOOLCHAIN_PYTHON)
+            self.assertIn("-u", cmd)
+            self.assertIn("--network", cmd)
+            self.assertEqual(
+                (root / "WINDOWS_DOCKER_CONSOLE.txt").read_text(encoding="utf-8"),
+                "compiler unsupported op\\n",
+            )
             self.assertIn("--pull", cmd)
             self.assertNotIn("kneron/toolchain:v0.33.1", cmd)
             report = w.read_json(root / "WINDOWS_DOCKER_EXECUTION.json")
