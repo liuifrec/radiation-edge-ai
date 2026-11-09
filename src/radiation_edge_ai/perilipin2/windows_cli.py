@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from collections import Counter
 from pathlib import Path
 
@@ -30,6 +31,8 @@ WORK_MODEL = "nuclear_candidate.onnx"
 WORK_OPT = "nuclear_candidate.kneron.opt.onnx"
 DEFAULT_IMAGE = "kneron/toolchain:latest"  # local-only, never auto-pull
 SCHEMA = "perilipin2-m3c-windows-v1"
+DOCKER_PROBE_TIMEOUT_SECONDS = 90
+DOCKER_METADATA_TIMEOUT_SECONDS = 20
 
 # Original DNAi/NASA Kneron v0.33.1 image provides a legacy optimizer via ktc.
 # This probe and adapter intentionally do not modify the vendor environment.
@@ -52,10 +55,41 @@ TOOLCHAIN_PROBE_CODE = "\n".join((
 
 
 def probe_toolchain_python(image_id):
-    """Read-only Docker probe of the interpreter + either supported optimizer."""
+    """Bounded Kneron probe; clean up only its own named container on timeout."""
+    name = "radedge-perilipin2-probe-" + uuid.uuid4().hex[:12]
     cmd = ["docker", "run", "--rm", "--pull", "never", "--network", "none",
-           "--entrypoint", TOOLCHAIN_PYTHON, image_id, "-c", TOOLCHAIN_PROBE_CODE]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+           "--name", name, "--entrypoint", TOOLCHAIN_PYTHON,
+           image_id, "-c", TOOLCHAIN_PROBE_CODE]
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=False,
+            timeout=DOCKER_PROBE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        details = exc.stdout or b""
+        if isinstance(details, bytes):
+            details = details.decode("utf-8", errors="replace")
+        errors = exc.stderr or b""
+        if isinstance(errors, bytes):
+            errors = errors.decode("utf-8", errors="replace")
+        cleanup_note = ""
+        try:
+            cleanup = subprocess.run(
+                ["docker", "rm", "-f", name], capture_output=True, text=True,
+                check=False, timeout=10,
+            )
+            cleanup_note = " Targeted probe cleanup exit code: {}.".format(cleanup.returncode)
+        except (subprocess.TimeoutExpired, OSError) as cleanup_exc:
+            cleanup_note = " Targeted probe cleanup issue: {}.".format(cleanup_exc)
+        message = (
+            "M3C_TOOLCHAIN_PROBE_TIMEOUT after {} seconds; container {}."
+            " Docker import may be blocked or unusually slow.{}"
+            " Captured output: {}"
+        ).format(
+            DOCKER_PROBE_TIMEOUT_SECONDS, name, cleanup_note,
+            (str(details) + "\n" + str(errors)).strip()[-4000:],
+        )
+        return False, message
     return result.returncode == 0, (result.stdout + result.stderr).strip()
 
 
@@ -169,8 +203,12 @@ def check_bundle(root, need_optimized=False):
 def docker_image_identity(image):
     if not image or any(c.isspace() for c in image) or image.startswith("-"):
         raise ValueError("Invalid Docker image reference")
-    result = subprocess.run(["docker", "image", "inspect", image, "--format", "{{.Id}}"],
-                            capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(["docker", "image", "inspect", image, "--format", "{{.Id}}"],
+                                capture_output=True, text=True, check=False,
+                                timeout=DOCKER_METADATA_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("Docker image inspect timed out: {}".format(image)) from exc
     if result.returncode != 0 or not result.stdout.strip():
         raise ValueError("Docker image not installed locally: {}. No pull performed. {}".format(
             image, result.stderr.strip()))
@@ -186,17 +224,32 @@ def doctor(args):
               "docker_toolchain_python_ready": False, "docker_toolchain_probe": None,
               "physical_kl720_probe_performed": False}
     if probe["docker_cli"]:
-        engine = subprocess.run(["docker", "info", "--format", "{{.ServerVersion}}"],
-                                capture_output=True, text=True, check=False)
-        probe["docker_engine"] = engine.returncode == 0
+        print("[Doctor] Checking Docker daemon (bounded)...", flush=True)
+        try:
+            engine = subprocess.run(
+                ["docker", "info", "--format", "{{.ServerVersion}}"],
+                capture_output=True, text=True, check=False,
+                timeout=DOCKER_METADATA_TIMEOUT_SECONDS,
+            )
+            probe["docker_engine"] = engine.returncode == 0
+            if not probe["docker_engine"]:
+                probe["docker_toolchain_probe"] = "Docker daemon unavailable: " + engine.stderr.strip()
+        except subprocess.TimeoutExpired:
+            probe["docker_toolchain_probe"] = "Docker daemon probe timed out"
         if probe["docker_engine"]:
             try:
+                print("[Doctor] Inspecting local Kneron image...", flush=True)
                 probe["image_id"] = docker_image_identity(args.image)
+                print(
+                    "[Doctor] Importing Kneron toolchain and checking optimizer "
+                    "(max {} s)...".format(DOCKER_PROBE_TIMEOUT_SECONDS),
+                    flush=True,
+                )
                 ready, message = probe_toolchain_python(probe["image_id"])
                 probe["docker_toolchain_python_ready"] = ready
                 probe["docker_toolchain_probe"] = message
-            except ValueError:
-                pass
+            except ValueError as exc:
+                probe["docker_toolchain_probe"] = str(exc)
     print(json.dumps(probe, indent=2, sort_keys=True))
     if not all(libs.values()):
         print("Install ONNX/ONNX Runtime in the separate Windows engineering environment.")
@@ -345,6 +398,11 @@ def evaluate(args):
     image_id = docker_image_identity(args.image)
     if (root / "WINDOWS_DOCKER_EXECUTION.json").exists():
         raise ValueError("Existing Windows execution receipt; use a fresh work directory")
+    print(
+        "[Evaluate] Checking Kneron Python and optimizer (max {} s)...".format(
+            DOCKER_PROBE_TIMEOUT_SECONDS
+        ), flush=True,
+    )
     ready, message = probe_toolchain_python(image_id)
     if not ready:
         raise ValueError("Kneron toolchain preflight failed: " + message)
