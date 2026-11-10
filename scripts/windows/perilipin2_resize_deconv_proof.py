@@ -108,6 +108,13 @@ def convert(onnx, np, model, measurements):
     graph.initializer.extend(
         item for item in old_initializers if item.name not in removed_size_names
     )
+    # A legacy ONNX exporter may also list initializers as graph inputs.
+    # Remove only the now-dead size parameters, never an actual feature input.
+    old_inputs = list(graph.input)
+    del graph.input[:]
+    graph.input.extend(
+        item for item in old_inputs if item.name not in removed_size_names
+    )
     old_info = list(graph.value_info)
     del graph.value_info[:]
     graph.value_info.extend(
