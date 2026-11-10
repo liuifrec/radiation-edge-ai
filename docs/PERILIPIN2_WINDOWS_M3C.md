@@ -335,6 +335,73 @@ microscopy inputs, CPU watershed, or DAB brown-object classification.
 Do not merge PR #26 or claim KL720 support unless the vendor results
 and subsequent physical-device tests actually justify it.
 
+## 3F. Post-pruning Err:134 in Kneron CheckBatch; controlled operator alternative
+
+The November 10 pruned static-sizes trial also failed with
+`kdp720/compiler frontend Err: 134`, but **not** the original Resize
+assertion. The backtrace points to
+`Graph::InterpretHwShape -> BatchSizeInterpreter::Process -> CheckBatch
+-> __assert_fail`. This is a separate internal compiler assertion.
+An identical error number does not imply an identical cause.
+
+The prior `Err:139` tests and the pruned `Err:134` test demonstrate that
+merely changing static Resize parameter representations or deleting
+unreachable shape nodes does not make this model compilable. Do not
+revisit these frozen runs or modify the original trained model.
+
+### Last targeted architecture-preserving experiment
+
+Historical KL720 operator documentation lists `ConvTranspose` with
+`strides=[2,2]`, although support for this precise grouped/depthwise
+configuration is **not guaranteed** in Toolchain v0.33.1. For a fixed
+2x nearest-neighbor upsample, a grouped ConvTranspose with
+`group=C`, `strides=[2,2]`, `kernel=[2,2]`, no padding and fixed
+float32 all-one weights of shape `[C,1,2,2]` reproduces each pixel
+in a nonoverlapping 2x2 block. This is a **non-trained representation
+change**, not an independently trained alternative.
+
+First generate the candidate from the previously **pruned, parity-proven**
+static-sizes model. The script enforces the same four measured decoder
+stage shapes, replaces all four active Resize nodes, leaves learned
+weights unchanged, and compares outputs on the two fixed synthetic
+inputs against the frozen original, optimized ONNX and pruned source.
+Only passing candidates are emitted. It does not run Docker.
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+git fetch origin feature/perilipin2-windows-m3c-poc
+git merge --ff-only FETCH_HEAD
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$Work = 'D:\radiation-edge-ai-data\scratch\perilipin2_m3c_20261110_diag_v2'
+$PrunedProof = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_pruned_proof_20261110_v1'
+$Out = 'D:\radiation-edge-ai-data\scratch\perilipin2_depthwise_deconv_proof_20261110_v1'
+& $Python .\scripts\windows\perilipin2_resize_deconv_proof.py --work $Work --pruned-proof $PrunedProof --out $Out
+if (Test-Path "$Out\M3C_RESIZE_PROOF.json") { Get-Content "$Out\M3C_RESIZE_PROOF.json" }
+```
+
+**Only if** the new proof has status
+`FP32_COMPATIBILITY_CANDIDATES`, a `depthwise-deconv`
+`parity_pass: true`, and no nonzero or decision mismatches, run
+the isolated compiler feasibility gate with a NEW output directory.
+The existing `perilipin2_resize_vendor_gate.py` validates that all
+four expected ConvTranspose operators carry the exact fixed
+parameters and all-one kernels. It skips ONNX optimization again.
+
+```powershell
+$VendorOut = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_vendor_deconv_v1'
+& $Python .\scripts\windows\perilipin2_resize_vendor_gate.py --proof-dir $Out --variant depthwise-deconv --out $VendorOut
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_EXECUTION.json"
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_REPORT.json"
+if (Test-Path "$VendorOut\backtrace.log") { Get-Content "$VendorOut\backtrace.log" }
+```
+
+**Stop condition:** If this independent operator representation also
+crashes the Kneron frontend, freeze the compiler reproducibility packet
+and escalate to Kneron engineering with anonymized synthetic ONNX
+reproducers. Do not indefinitely mutate the scientific model to
+bypass an unstable compiler. Even vendor success remains only a
+feasibility result; no hardware or biological endpoint is established.
+
 ## 4. Inspection and evidence gates
 
 - `M3C_HOST_READY.json`: parity result SHA256, exact 1×3×512×512 input and 1×2×512×512 logits output, graph operators and runner identity.
