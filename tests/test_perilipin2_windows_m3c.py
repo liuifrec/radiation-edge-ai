@@ -230,7 +230,7 @@ class M3CWindowsIntegrationTest(unittest.TestCase):
                                       model_version="0001")
             process = mock.MagicMock()
             process.__enter__.return_value = process
-            process.stdout = io.StringIO("compiler unsupported op\\n")
+            process.stdout = io.BytesIO(b"compiler unsupported op\\n")
             process.wait.return_value = 6
             with mock.patch.object(w, "docker_image_identity", return_value="sha256:pinned"):
                 with mock.patch.object(w, "probe_toolchain_python",
@@ -250,6 +250,11 @@ class M3CWindowsIntegrationTest(unittest.TestCase):
                 (root / "WINDOWS_DOCKER_CONSOLE.txt").read_text(encoding="utf-8"),
                 "compiler unsupported op\\n",
             )
+            self.assertEqual(
+                (root / "WINDOWS_DOCKER_CONSOLE.raw").read_bytes(),
+                b"compiler unsupported op\\n",
+            )
+            self.assertFalse(runner.call_args.kwargs.get("text", False))
             self.assertIn("--pull", cmd)
             self.assertNotIn("kneron/toolchain:v0.33.1", cmd)
             report = w.read_json(root / "WINDOWS_DOCKER_EXECUTION.json")
@@ -257,6 +262,80 @@ class M3CWindowsIntegrationTest(unittest.TestCase):
             self.assertFalse(report["evaluation_receipt_exists"])
             self.assertFalse((root / "M3C_KNERON_EVAL_RECEIPT.json").exists())
 
+
+    def test_compiler_failure_non_utf8_stream_never_masks_vendor_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / w.WORK_MODEL).write_bytes(b"model")
+            (root / "perilipin2_m3c_runner.py").write_bytes(b"script")
+            (root / "ONNX_PARITY.json").write_bytes(b"{}")
+            data = {"schema": w.SCHEMA, "status": "M3B_PARITY_VERIFIED",
+                    "model_sha256": w.sha256(root / w.WORK_MODEL),
+                    "runner_sha256": w.sha256(root / "perilipin2_m3c_runner.py"),
+                    "parity_sha256": w.sha256(root / "ONNX_PARITY.json")}
+            (root / "M3C_HOST_READY.json").write_text(json.dumps(data))
+            args = argparse.Namespace(work=str(root), image="kneron/toolchain:latest",
+                                      model_id=32785, model_version="0001")
+            raw = (b'Failure for model "input/input" when running '
+                   b'"kdp720/compiler frontend"\n' + bytes([0x93, 0xff]) + b"\n")
+            process = mock.MagicMock()
+            process.__enter__.return_value = process
+            process.stdout = io.BytesIO(raw)
+            process.wait.return_value = 0  # A vendor printout must fail closed even on code 0.
+            with mock.patch.object(w, "docker_image_identity", return_value="sha256:pinned"):
+                with mock.patch.object(w, "probe_toolchain_python", return_value=(True, "ready")):
+                    with mock.patch.object(w.subprocess, "Popen", return_value=process):
+                        with self.assertRaisesRegex(ValueError, "compiler reported a failure"):
+                            w.evaluate(args)
+            self.assertEqual((root / "WINDOWS_DOCKER_CONSOLE.raw").read_bytes(), raw)
+            transcript = (root / "WINDOWS_DOCKER_CONSOLE.txt").read_text(encoding="utf-8")
+            self.assertIn("Failure for model", transcript)
+            self.assertIn("\\x93\\xff", transcript)
+            report = w.read_json(root / "WINDOWS_DOCKER_EXECUTION.json")
+            self.assertEqual(report["toolchain_run_exit_code"], 0)
+            self.assertIn("failure for model", report["vendor_failure_markers"])
+            self.assertEqual(report["raw_console_sha256"], w.sha256(root / "WINDOWS_DOCKER_CONSOLE.raw"))
+            self.assertFalse((root / "M3C_KNERON_EVAL_RECEIPT.json").exists())
+
+    def test_vendor_exception_collects_compiler_log_before_container_exits(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / w.WORK_MODEL).write_bytes(b"model")
+            (root / "perilipin2_m3c_runner.py").write_bytes(b"script")
+            (root / "ONNX_PARITY.json").write_bytes(b"{}")
+            data = {"schema": w.SCHEMA, "status": "M3B_PARITY_VERIFIED",
+                    "model_sha256": w.sha256(root / w.WORK_MODEL),
+                    "runner_sha256": w.sha256(root / "perilipin2_m3c_runner.py"),
+                    "parity_sha256": w.sha256(root / "ONNX_PARITY.json")}
+            (root / "M3C_HOST_READY.json").write_text(json.dumps(data))
+            fake_onnx = self._fake_onnx()
+            fake_onnx.save = lambda model, path: Path(path).write_bytes(b"optimized")
+            def vendor_raise():
+                raise RuntimeError("compiler frontend error")
+            fake_ktc = types.SimpleNamespace(
+                ModelConfig=lambda *args, **kwargs: types.SimpleNamespace(evaluate=vendor_raise)
+            )
+            source_log = root / "batch_compile.log"
+            source_log.write_text("Failure for model input/input\n", encoding="utf-8")
+            def find_log(filename, started):
+                return source_log if filename == "batch_compile.log" else None
+            args = argparse.Namespace(work=str(root), model_id=32785, model_version="0001")
+            with mock.patch.dict(sys.modules, {"onnx": fake_onnx, "ktc": fake_ktc}):
+                with mock.patch.object(w, "optimize_model",
+                                       return_value=(fake_onnx.load("x"), "legacy")):
+                    with mock.patch.object(w, "artifact_find", side_effect=find_log):
+                        with self.assertRaisesRegex(ValueError, "Kneron evaluation failed"):
+                            w.docker_evaluate(args)
+            failure = w.read_json(root / "M3C_KNERON_FAILURE.json")
+            self.assertEqual(failure["status"], "KNERON_EVALUATION_FAILED")
+            self.assertIn("RuntimeError", failure["vendor_exception"])
+            self.assertIn("batch_compile.log", failure["artifact_sha256"])
+            self.assertIn("failure for model", failure["vendor_failure_markers"])
+            self.assertFalse((root / "M3C_KNERON_EVAL_RECEIPT.json").exists())
+
+    def test_shape_inference_warning_is_not_compiler_rejection(self):
+        self.assertEqual(w.vendor_failure_markers(
+            "Cannot inference all shapes. If no other error is raised, ignore this message."), [])
 
 if __name__ == "__main__":
     unittest.main()
