@@ -204,6 +204,41 @@ If the probe fails before output creation, preserve both source work
 directories and share the exact exception. Do not alter the frozen model,
 skip failed parity checks, or merge this experimental PR into main.
 
+## 3C. Pinned KL720 vendor feasibility for an accepted Resize candidate
+
+After **both** host-only FP32 proof gates pass, run this separate vendor
+feasibility gate. It feeds the **already pre-optimized** and hash-proven
+`static-sizes` candidate to the pinned Kneron v0.33.1 Docker image.
+**It deliberately skips Kneron ONNX optimization**, which might reverse
+the graph representation change under test.
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+git fetch origin feature/perilipin2-windows-m3c-poc
+git merge --ff-only FETCH_HEAD
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$ProofDir = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_proof_20261110_v1'
+$VendorOut = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_vendor_static_v1'
+& $Python .\scripts\windows\perilipin2_resize_vendor_gate.py --proof-dir $ProofDir --variant static-sizes --out $VendorOut
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_EXECUTION.json"
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_REPORT.json"
+Get-Content "$VendorOut\VENDOR_DOCKER_CONSOLE.txt" -Tail 100
+```
+
+The gate enforces the original source hash, the candidate's Resize proof
+hash and FP32 parity results, the exact Kneron Docker image ID, and a
+new-only work folder. Output includes a binary-exact vendor transcript,
+a decoded one, vendor reports/backtraces and machine-readable failure
+status. **Do not run the integer-scales trial unless this static-sizes
+attempt fails or gives reason to test the alternative.**
+
+Vendor exit code 0 does not imply success: `Err: N` for nonzero N and
+`Failure for model` mark compiler rejection. A status of
+`VENDOR_RETURNED_REQUIRES_REPORT_REVIEW` is **not** NPU-only validation.
+Check report partition evidence before PTQ, BIE, NEF, device inference,
+or scientific use. Preserve any failed folder; new trials require a
+new `--out` path.
+
 ## 4. Inspection and evidence gates
 
 - `M3C_HOST_READY.json`: parity result SHA256, exact 1×3×512×512 input and 1×2×512×512 logits output, graph operators and runner identity.
