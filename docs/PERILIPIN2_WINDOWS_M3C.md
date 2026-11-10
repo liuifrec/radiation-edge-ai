@@ -166,6 +166,44 @@ If a previous Evaluate attempt was made, its imported runner is separately
 hash-frozen and must be preserved. Re-import under a new `-RunName` after
 updating the repository runner; never edit the frozen runner in place.
 
+## 3B. Isolated proof for the observed Resize compiler assertion
+
+The 2026-11-10 KL720 failure was localized by backtrace to
+\`ReplaceResizeWithKneronResize -> ResizeNode::GetVScale -> __assert_fail\`.
+All four ONNX nearest/asymmetric/floor Resize nodes receive target sizes from
+a computed tensor (Concat in source, Pad after Kneron optimization). We must
+test whether a fixed-input graph permits a numerically faithful
+representation as constant sizes or explicit integer scales before changing
+the deployment graph. **A suspected Resize incompatibility is not yet a fix.**
+
+Run this HOST-ONLY proof using the already failed, preserved work directory.
+The probe only reads its frozen original/optimized ONNX and manifests, uses
+two deterministic synthetic inputs, checks original-vs-optimized FP32 parity
+and zero foreground/boundary decision flips, and saves experimental variants
+to a NEW separate D: scratch directory. No microscopy image or KL720 device
+is used; it does not run Docker or vendor optimization again.
+
+\`\`\`powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+$Python = "D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe"
+$Work = "D:\radiation-edge-ai-data\scratch\perilipin2_m3c_20261110_diag_v2"
+$Output = "D:\radiation-edge-ai-data\scratch\perilipin2_resize_proof_20261110_v1"
+& $Python .\scripts\windows\perilipin2_resize_proof.py --work $Work --out $Output
+Get-Content "$Output\M3C_RESIZE_PROOF.json"
+\`\`\`
+
+The \`M3C_RESIZE_PROOF.json\` contains each observed input/output shape,
+integer ratios, original-vs-optimized parity and the two candidate parity
+results. A variant is **only written when** all FP32 parity gates pass.
+A passing result is **not** permission to use a candidate in production:
+every saved variant is still uncompiled, unquantized, has no NEF or physical
+KL720 result, and must undergo its own named, immutable vendor compatibility
+evaluation in a separate subsequent gate.
+
+If the probe fails before output creation, preserve both source work
+directories and share the exact exception. Do not alter the frozen model,
+skip failed parity checks, or merge this experimental PR into main.
+
 ## 4. Inspection and evidence gates
 
 - `M3C_HOST_READY.json`: parity result SHA256, exact 1×3×512×512 input and 1×2×512×512 logits output, graph operators and runner identity.
