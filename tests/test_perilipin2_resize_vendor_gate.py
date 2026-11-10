@@ -85,6 +85,8 @@ class VendorResizeTest(unittest.TestCase):
         self.assertIn("failure for model", v.failure_markers(
             'Failure for model "input/input"'))
         self.assertEqual(v.failure_markers("compilation complete Err: 0"), [])
+        self.assertIn("compiler invalid input", v.failure_markers(
+            "kdp720/compiler  compiler invalid input"))
 
     def test_image_pinned_by_docker_identity(self):
         def inspect(cmd, **kwargs):
