@@ -104,6 +104,17 @@ reports while its transient container is still alive, including when vendor
 `evaluate()` throws; it then writes `M3C_KNERON_FAILURE.json`.
 The raw failure log and reports stay under D: and must not be committed.
 
+**Confirmed on 2026-11-10:** The Kneron v0.33.1 vendor table showed
+`kdp720/compiler frontend Err: 134` while its `ktc.ModelConfig.evaluate()`
+returned a success exit code. The first diagnostic runner already blocked the
+outer Windows gate, but still left an internally misleading
+`M3C_KNERON_EVAL_RECEIPT.json`. New runs now recognize nonzero `Err: N` table
+codes before writing any completion receipt; they write
+`M3C_KNERON_FAILURE.json` instead. The existing failed run and its
+`backtrace.log`/`model_fx_report.json` should be inspected **without
+rerunning or deleting it**. This error code alone does not identify whether
+the cause is an unsupported graph structure, compiler bug or resource abort.
+
 This **does not fix Kneron compiler compatibility**. It only unmasks the real
 vendor error so the next action can be based on evidence. If the compiler
 rejects the graph, do not run Parity, PTQ, BIE, NEF or hardware inference.
