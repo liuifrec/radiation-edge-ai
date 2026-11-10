@@ -56,7 +56,7 @@ class VendorResizeTest(unittest.TestCase):
             }
             (directory / "M3C_RESIZE_PROOF.json").write_text(json.dumps(bad_proof))
             with mock.patch.dict(sys.modules, {"onnx": types.SimpleNamespace()}):
-                with self.assertRaisesRegex(ValueError, "not a successfully completed"):
+                with self.assertRaisesRegex(ValueError, "Not a successfully completed"):
                     v.checked_proof(directory, "static-sizes")
 
     def test_compiler_failure_with_binary_docker_output_creates_failure_receipt(self):
