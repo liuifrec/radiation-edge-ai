@@ -14,6 +14,7 @@ import hashlib
 import importlib.util
 import json
 import math
+import re
 import shutil
 import subprocess
 import sys
@@ -343,9 +344,15 @@ def inspect_cpu_partitions(path):
 
 
 def vendor_failure_markers(text):
-    """Explicit compiler rejection only; shape-inference warnings are not failures."""
+    """Fail closed on compiler rejections, including vendor 0-exit Err: N rows."""
     corpus = text.lower()
-    return [marker for marker in VENDOR_FAILURE_MARKERS if marker in corpus]
+    markers = [marker for marker in VENDOR_FAILURE_MARKERS if marker in corpus]
+    # The legacy kdp720 frontend can report 'Err: 134' in a table while
+    # ktc.ModelConfig.evaluate() itself returns successfully.
+    for code in re.findall(r"\berr:\s*(\d+)\b", corpus):
+        if int(code) != 0 and "err: {}".format(int(code)) not in markers:
+            markers.append("err: {}".format(int(code)))
+    return markers
 
 
 def docker_evaluate(args):
