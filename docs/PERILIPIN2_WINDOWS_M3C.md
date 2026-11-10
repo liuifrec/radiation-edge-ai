@@ -239,6 +239,44 @@ Check report partition evidence before PTQ, BIE, NEF, device inference,
 or scientific use. Preserve any failed folder; new trials require a
 new `--out` path.
 
+## 3D. November 10 static-sizes KL720 trial: Err: 139
+
+The first `static-sizes` vendor feasibility trial **failed** with
+`kdp720/compiler frontend Err: 139` (typical Linux SIGSEGV exit status).
+The saved backtrace terminates in
+`BatchSizeInterpreter::InterpretAllInputBatch` (via `Graph::InterpretHwShape`),
+not the original `ResizeNode::GetVScale` assertion (`Err: 134`).
+This is a changed compiler failure location, **not** demonstrated compatibility.
+
+KTC prints its flow table directly to stdout while `evaluate()` can return
+only a metadata string. This produced an incorrect inner
+`VENDOR_RETURNED_REQUIRES_REPORT_REVIEW` even though the outer host gate
+correctly recorded `VENDOR_REJECTED`. The vendor gate now treats a **fresh
+`backtrace.log`** as a failure regardless of KTC's return string or process
+exit code. The old static-sizes trial remains frozen and is not rewritten.
+
+Next isolated comparison: run the already parity-proven `integer-scales`
+candidate with the **updated runner** and a new output directory, retaining
+the original compiler evidence:
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+git fetch origin feature/perilipin2-windows-m3c-poc
+git merge --ff-only FETCH_HEAD
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$ProofDir = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_proof_20261110_v1'
+$VendorOut = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_vendor_integer_v1'
+& $Python .\scripts\windows\perilipin2_resize_vendor_gate.py --proof-dir $ProofDir --variant integer-scales --out $VendorOut
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_EXECUTION.json"
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_REPORT.json"
+if (Test-Path "$VendorOut\backtrace.log") { Get-Content "$VendorOut\backtrace.log" }
+```
+
+If integer-scales reproduces `BatchSizeInterpreter` failure, investigate
+dead dynamic shape-computation branches created by the size-input rewrite,
+with another immutable graph cleanup plus strict FP32 parity gate. Do not
+assume dangling nodes are the cause until the graph and compiler are tested.
+
 ## 4. Inspection and evidence gates
 
 - `M3C_HOST_READY.json`: parity result SHA256, exact 1×3×512×512 input and 1×2×512×512 logits output, graph operators and runner identity.
