@@ -204,13 +204,21 @@ def in_container(args):
         for name in artifacts if name.endswith((".log", ".csv", ".json"))
     )
     markers = failure_markers(evaluation + "\n" + artifact_text)
-    status = "VENDOR_REJECTED" if markers or exception else "VENDOR_RETURNED_REQUIRES_REPORT_REVIEW"
+    # KTC prints its compiler flow table to stdout, but evaluate() can return
+    # only the summary metadata (even when the frontend segfaults). A NEW
+    # backtrace is direct evidence of compiler failure; do not call it a pass.
+    compiler_backtrace = "backtrace.log" in artifacts
+    if compiler_backtrace and "compiler_backtrace" not in markers:
+        markers.append("compiler_backtrace")
+    status = ("VENDOR_REJECTED" if markers or exception
+              else "VENDOR_RETURNED_REQUIRES_REPORT_REVIEW")
     result = {
         "schema": GATE_SCHEMA, "status": status, "variant": intake["variant"],
         "original_sha256": FROZEN_SOURCE_SHA,
         "candidate_sha256": intake["candidate_sha256"],
         "optimizer_rerun": False, "vendor_exception": exception,
         "vendor_failure_markers": markers, "artifact_sha256": artifacts,
+        "compiler_backtrace_present": compiler_backtrace,
         "compiler_report_present": "model_fx_report.json" in artifacts,
         "ioinfo_present": "ioinfo.csv" in artifacts,
         "npu_only_verified": False, "bie_generated": False,
@@ -307,6 +315,7 @@ def on_windows(args):
         "raw_console_sha256": sha256(raw_path),
         "failure_markers": markers,
         "vendor_report_exists": inner is not None,
+        "compiler_backtrace_present": bool(inner and inner.get("compiler_backtrace_present")),
         "npu_only_verified": False, "bie_generated": False,
         "nef_compiled": False, "physical_kl720_inference": False,
     }
