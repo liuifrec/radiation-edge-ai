@@ -70,16 +70,19 @@ def generate(onnx, np, channels, height):
 
 
 def run(out_dir):
-    import numpy as np
-    import onnx
-    import onnxruntime as ort
-
     output = Path(out_dir).expanduser().resolve()
+    repo_root = Path(__file__).resolve().parents[2]
+    if output == repo_root or repo_root in output.parents:
+        raise ValueError("Generated ONNX files must stay outside the Git repository")
     if output.exists() or output.is_symlink():
         raise ValueError("Output already exists; never overwrite evidence: " + str(output))
     stage = output.with_name(output.name + ".BUILDING")
     if stage.exists() or stage.is_symlink():
         raise ValueError("Staging directory already exists: " + str(stage))
+    import numpy as np
+    import onnx
+    import onnxruntime as ort
+
     output.parent.mkdir(parents=True, exist_ok=True)
     stage.mkdir(parents=False, exist_ok=False)
     receipt = {
