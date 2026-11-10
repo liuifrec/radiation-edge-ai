@@ -11,7 +11,6 @@ The validated source ONNX and previous compiler artifacts are never modified.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import sys
 from pathlib import Path
@@ -239,7 +238,7 @@ def run(args):
             }
             if accepted:
                 variants[mode] = model
-        except (ValueError, RuntimeError, ort.OnnxRuntimeException) as exc:
+        except Exception as exc:
             report["variants"][mode] = {
                 "parity_pass": False,
                 "error": "{}: {}".format(type(exc).__name__, exc),
@@ -273,7 +272,7 @@ def main():
     args = parser.parse_args()
     try:
         return run(args)
-    except (ValueError, OSError, ImportError) as exc:
+    except Exception as exc:
         print("M3C_RESIZE_PROOF_STOP: {}: {}".format(type(exc).__name__, exc),
               file=sys.stderr)
         return 2
