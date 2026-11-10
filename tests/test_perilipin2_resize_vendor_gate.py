@@ -98,6 +98,48 @@ class VendorResizeTest(unittest.TestCase):
             self.assertIn("err: 134", report["failure_markers"])
             self.assertFalse(report["nef_compiled"])
 
+    def test_fresh_compiler_backtrace_overrides_vendor_summary_success(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / v.CANDIDATE).write_bytes(b"model")
+            (root / v.RUNNER).write_bytes(b"frozen")
+            trace = root / "backtrace.log"
+            trace.write_text("BatchSizeInterpreter::InterpretAllInputBatch\n", encoding="utf-8")
+            intake = {
+                "schema": v.GATE_SCHEMA,
+                "candidate_sha256": v.sha256(root / v.CANDIDATE),
+                "runner_sha256": v.sha256(root / v.RUNNER),
+                "variant": "static-sizes",
+                "resize_nodes": [{"target_shape": [1, 96, 64, 64]}],
+                "model_id": 32785,
+                "model_version": "0001",
+            }
+            (root / v.INTAKE).write_text(json.dumps(intake), encoding="utf-8")
+            model = object()
+            fake_onnx = types.SimpleNamespace(
+                load=lambda _: model,
+                checker=types.SimpleNamespace(check_model=lambda _: None))
+            class ModelConfig:
+                def __init__(self, *args, **kwargs):
+                    pass
+                def evaluate(self):
+                    # The vendor may return only metadata, while printing its
+                    # Err: 139 flow table directly to the console.
+                    return "docker_version: kneron/toolchain:v0.33.1\ncomments:"
+            fake_ktc = types.SimpleNamespace(ModelConfig=ModelConfig)
+            def find_fresh(filename, started):
+                return trace if filename == "backtrace.log" else None
+            args = types.SimpleNamespace(out=str(root))
+            with mock.patch.dict(sys.modules, {"ktc": fake_ktc, "onnx": fake_onnx}):
+                with mock.patch.object(v, "resize_graph_contract"):
+                    with mock.patch.object(v, "newest_artifact", side_effect=find_fresh):
+                        self.assertEqual(v.in_container(args), 2)
+            report = v.read_json(root / v.REPORT)
+            self.assertEqual(report["status"], "VENDOR_REJECTED")
+            self.assertTrue(report["compiler_backtrace_present"])
+            self.assertIn("compiler_backtrace", report["vendor_failure_markers"])
+            self.assertFalse(report["nef_compiled"])
+
     def test_vendor_evaluate_no_optimizer_and_fail_closed_receipt(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
