@@ -277,6 +277,64 @@ dead dynamic shape-computation branches created by the size-input rewrite,
 with another immutable graph cleanup plus strict FP32 parity gate. Do not
 assume dangling nodes are the cause until the graph and compiler are tested.
 
+## 3E. November 10 integer-scales trial: same Err:139
+
+The second parity-proven variant (`integer-scales`) also failed with
+`kdp720/compiler frontend Err: 139`. Its backtrace again terminates
+in `BatchSizeInterpreter::InterpretAllInputBatch`, exactly as in the
+static-sizes trial. The inner and outer gates both correctly recorded
+`VENDOR_REJECTED` after the earlier failure-reporting fix. No BIE, NEF
+or KL720 inference was performed.
+
+**Next isolated hypothesis:** the optimized ONNX may still contain
+unreachable dynamic shape-computation nodes left behind when the
+`Resize` target-size tensor was replaced. These may trigger the compiler's
+shape/batch interpreter even though ONNX Runtime ignores them. This is
+not a proven cause of Err:139.
+
+Test it on Windows using **only the successful static-sizes proof**
+and the original frozen M3C evaluation folder. The new host-only script
+performs backward output-dependency pruning (deletion only), refuses
+nested ONNX control flow or unknown graph inputs, and independently
+checks FP32 outputs and foreground/boundary decisions on the two fixed
+synthetic inputs. No vendor compiler run is made at this stage.
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+git fetch origin feature/perilipin2-windows-m3c-poc
+git merge --ff-only FETCH_HEAD
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$Work = 'D:\radiation-edge-ai-data\scratch\perilipin2_m3c_20261110_diag_v2'
+$ProofDir = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_proof_20261110_v1'
+$Out = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_pruned_proof_20261110_v1'
+& $Python .\scripts\windows\perilipin2_resize_pruned_proof.py --work $Work --proof-dir $ProofDir --out $Out
+if (Test-Path "$Out\M3C_RESIZE_PROOF.json") { Get-Content "$Out\M3C_RESIZE_PROOF.json" }
+```
+
+A `FP32_COMPATIBILITY_CANDIDATES` result with nonzero nodes removed
+and zero parity error supports running one **additional** vendor trial.
+The pruned proof intentionally uses the same manifest schema and
+`static-sizes` variant key as the original gate, but has a different
+folder, filename, SHA256, parent-proof SHA256, and a deletion audit.
+That means the existing `perilipin2_resize_vendor_gate.py` can verify
+it independently by pointing `--proof-dir` to the **pruned proof folder**
+and choosing a new `--out` folder. Do not run the vendor stage before
+seeing the pruned proof's diagnostics.
+
+```powershell
+# ONLY AFTER pruned host FP32 parity passes
+$VendorOut = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_vendor_pruned_static_v1'
+& $Python .\scripts\windows\perilipin2_resize_vendor_gate.py --proof-dir $Out --variant static-sizes --out $VendorOut
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_EXECUTION.json"
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_REPORT.json"
+if (Test-Path "$VendorOut\backtrace.log") { Get-Content "$VendorOut\backtrace.log" }
+```
+
+This graph-pruning experiment does not train or change model weights,
+microscopy inputs, CPU watershed, or DAB brown-object classification.
+Do not merge PR #26 or claim KL720 support unless the vendor results
+and subsequent physical-device tests actually justify it.
+
 ## 4. Inspection and evidence gates
 
 - `M3C_HOST_READY.json`: parity result SHA256, exact 1×3×512×512 input and 1×2×512×512 logits output, graph operators and runner identity.
