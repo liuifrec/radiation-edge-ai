@@ -14,6 +14,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import numpy as np
+
 SOURCE = Path(__file__).resolve().parents[1] / "scripts/windows/perilipin2_resize_vendor_gate.py"
 SPEC = importlib.util.spec_from_file_location("perilipin2_resize_vendor_gate", str(SOURCE))
 assert SPEC is not None and SPEC.loader is not None
@@ -22,6 +24,61 @@ SPEC.loader.exec_module(v)
 
 
 class VendorResizeTest(unittest.TestCase):
+    def test_depthwise_deconv_contract_rejects_non_one_kernel_and_bad_group(self):
+        def io(name, dimensions):
+            return types.SimpleNamespace(
+                name=name,
+                type=types.SimpleNamespace(
+                    tensor_type=types.SimpleNamespace(
+                        shape=types.SimpleNamespace(
+                            dim=[types.SimpleNamespace(dim_value=i) for i in dimensions]
+                        ))))
+        def integer(name, value):
+            return types.SimpleNamespace(type=2, name=name, i=value)
+        def ints(name, values):
+            return types.SimpleNamespace(type=7, name=name, ints=values)
+        stages = []
+        nodes = []
+        weights = []
+        for i, (channels, hw) in enumerate(((96, 32), (72, 64), (48, 128), (24, 256))):
+            name = "/Resize_" + str(i)
+            stages.append({
+                "node_name": name, "input_shape": [1, channels, hw, hw],
+                "target_shape": [1, channels, 2 * hw, 2 * hw],
+            })
+            weights.append(types.SimpleNamespace(
+                name="kernel_" + str(i),
+                value=np.ones((channels, 1, 2, 2), dtype=np.float32)))
+            nodes.append(types.SimpleNamespace(
+                name=name, op_type="ConvTranspose",
+                input=["x_" + str(i), weights[-1].name], output=["y_" + str(i)],
+                attribute=[integer("group", channels),
+                           ints("strides", [2, 2]), ints("kernel_shape", [2, 2]),
+                           ints("pads", [0, 0, 0, 0])]))
+        graph = types.SimpleNamespace(
+            input=[io(v.INPUT_NAME, v.INPUT_SHAPE)],
+            output=[io(v.OUTPUT_NAME, v.OUTPUT_SHAPE)],
+            initializer=weights, node=nodes,
+        )
+        model = types.SimpleNamespace(graph=graph)
+        onnx = types.SimpleNamespace(
+            AttributeProto=types.SimpleNamespace(STRING=3, INT=2, INTS=7),
+            numpy_helper=types.SimpleNamespace(to_array=lambda obj: obj.value),
+        )
+        with mock.patch.dict(sys.modules, {"onnx": onnx}):
+            v.resize_graph_contract(model, "depthwise-deconv", stages)
+            weights[2].value[0, 0, 0, 0] = 0.5
+            with self.assertRaisesRegex(ValueError, "weight values"):
+                v.resize_graph_contract(model, "depthwise-deconv", stages)
+            weights[2].value[0, 0, 0, 0] = 1.0
+            nodes[2].attribute[0].i = 1
+            with self.assertRaisesRegex(ValueError, "attributes"):
+                v.resize_graph_contract(model, "depthwise-deconv", stages)
+            nodes[2].attribute[0].i = 48
+            nodes[0].op_type = "Resize"
+            with self.assertRaisesRegex(ValueError, "Unreplaced Resize"):
+                v.resize_graph_contract(model, "depthwise-deconv", stages)
+
     def test_vendor_zero_exit_code_cannot_override_error_134(self):
         self.assertIn("err: 134", v.failure_markers(
             "input input  Err: 134  \u2713"))
