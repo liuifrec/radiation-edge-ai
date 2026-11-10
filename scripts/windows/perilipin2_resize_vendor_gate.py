@@ -74,6 +74,50 @@ def resize_graph_contract(model, variant, sizes):
         dims = [int(x.dim_value) for x in value.type.tensor_type.shape.dim]
         if value.name != name or dims != shape:
             raise ValueError("ONNX IO contract mismatch: " + str((value.name, dims)))
+    if variant == "depthwise-deconv":
+        if any(node.op_type == "Resize" for node in model.graph.node):
+            raise ValueError("Unreplaced Resize remains in deconvolution candidate")
+        if len(sizes) != 4:
+            raise ValueError("Four proven decoder stages required")
+        expected_names = [entry["node_name"] for entry in sizes]
+        selected = [node for node in model.graph.node
+                    if node.op_type == "ConvTranspose"
+                    and node.name in expected_names]
+        if len(selected) != 4 or len(set(expected_names)) != 4:
+            raise ValueError("Four named ConvTranspose replacements required")
+        by_name = {node.name: node for node in selected}
+        initializers = {obj.name: obj for obj in model.graph.initializer}
+        for expected in sizes:
+            node = by_name[expected["node_name"]]
+            dims = expected["input_shape"]
+            target = expected["target_shape"]
+            channels = dims[1]
+            if dims[0] != 1 or target != [dims[0], channels,
+                                          dims[2] * 2, dims[3] * 2]:
+                raise ValueError("Decoder shape is not fixed 2x upsampling")
+            if len(node.input) != 2 or len(node.output) != 1:
+                raise ValueError("Depthwise deconvolution IO count mismatch")
+            if node.input[1] not in initializers:
+                raise ValueError("Missing deterministic deconvolution kernel")
+            attributes = {}
+            for attr in node.attribute:
+                if attr.type == onnx.AttributeProto.INT:
+                    attributes[attr.name] = attr.i
+                elif attr.type == onnx.AttributeProto.INTS:
+                    attributes[attr.name] = list(attr.ints)
+            if (attributes.get("group") != channels
+                    or attributes.get("strides") != [2, 2]
+                    or attributes.get("kernel_shape") != [2, 2]
+                    or attributes.get("pads") != [0, 0, 0, 0]):
+                raise ValueError("Unexpected depthwise ConvTranspose attributes")
+            kernel = numpy_helper.to_array(initializers[node.input[1]])
+            if (list(kernel.shape) != [channels, 1, 2, 2]
+                    or str(kernel.dtype) != "float32"
+                    or not (kernel == 1).all()):
+                raise ValueError("Unexpected ConvTranspose weight values")
+        return
+    if variant not in ("static-sizes", "integer-scales"):
+        raise ValueError("Unsupported Resize variant: " + variant)
     resize = [node for node in model.graph.node if node.op_type == "Resize"]
     if len(resize) != 4 or len(sizes) != 4:
         raise ValueError("Four proven Resize nodes required")
@@ -329,7 +373,7 @@ def main():
     parser.add_argument("--container", action="store_true",
                         help="internal Docker entry point")
     parser.add_argument("--proof-dir", help="existing static Resize proof folder")
-    parser.add_argument("--variant", choices=("static-sizes", "integer-scales"),
+    parser.add_argument("--variant", choices=("static-sizes", "integer-scales", "depthwise-deconv"),
                         default="static-sizes")
     parser.add_argument("--out", required=True, help="new D: output directory")
     parser.add_argument("--image", default=IMAGE)
