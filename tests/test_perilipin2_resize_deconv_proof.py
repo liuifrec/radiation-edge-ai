@@ -90,8 +90,10 @@ class DepthwiseDeconvProofTest(unittest.TestCase):
                               ["feature_{}".format(index), "", "", name],
                               ["upsampled_{}".format(index)]))
         source = Model(types.SimpleNamespace(
-            node=nodes, initializer=init, value_info=[
-                types.SimpleNamespace(name="old_size_0")]))
+            node=nodes, initializer=init,
+            input=[types.SimpleNamespace(name="rgb_chw_normalized"),
+                   types.SimpleNamespace(name="old_size_0")],
+            value_info=[types.SimpleNamespace(name="old_size_0")]))
         fake_onnx = types.SimpleNamespace(
             ModelProto=Model,
             helper=types.SimpleNamespace(
@@ -112,6 +114,9 @@ class DepthwiseDeconvProofTest(unittest.TestCase):
         self.assertEqual([n.op_type for n in result.graph.node], ["ConvTranspose"] * 4)
         names = [item.name for item in result.graph.initializer]
         self.assertIn("learned", names)
+        self.assertEqual([x.name for x in result.graph.input], ["rgb_chw_normalized"])
+        self.assertEqual([x.name for x in source.graph.input],
+                         ["rgb_chw_normalized", "old_size_0"])
         self.assertTrue(all(name not in names for name in
                             ["old_size_0", "old_size_1", "old_size_2", "old_size_3"]))
         self.assertEqual(len([name for name in names if name.startswith("m3c_deconv_")]), 4)
