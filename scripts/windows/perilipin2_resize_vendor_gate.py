@@ -181,7 +181,8 @@ def checked_proof(proof_dir, variant):
 def failure_markers(text):
     lowered = text.lower()
     words = ("failure for model", "failed to compile", "hw not support",
-             "hardware not support", "not supported", "unsupported")
+             "hardware not support", "not supported", "unsupported",
+             "compiler invalid input")
     found = [term for term in words if term in lowered]
     for code in re.findall(r"\berr:\s*(\d+)\b", lowered):
         if int(code) and "err: {}".format(int(code)) not in found:
