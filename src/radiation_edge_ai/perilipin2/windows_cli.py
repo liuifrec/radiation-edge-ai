@@ -33,6 +33,10 @@ DEFAULT_IMAGE = "kneron/toolchain:latest"  # local-only, never auto-pull
 SCHEMA = "perilipin2-m3c-windows-v1"
 DOCKER_PROBE_TIMEOUT_SECONDS = 90
 DOCKER_METADATA_TIMEOUT_SECONDS = 20
+VENDOR_FAILURE_MARKERS = (
+    "failure for model", "failed to compile", "hw not support",
+    "hardware not support", "compiler frontend failure", "err: 4",
+)
 
 # Original DNAi/NASA Kneron v0.33.1 image provides a legacy optimizer via ktc.
 # This probe and adapter intentionally do not modify the vendor environment.
@@ -62,7 +66,8 @@ def probe_toolchain_python(image_id):
            image_id, "-c", TOOLCHAIN_PROBE_CODE]
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, check=False,
+            cmd, capture_output=True, text=True, encoding="utf-8",
+            errors="backslashreplace", check=False,
             timeout=DOCKER_PROBE_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired as exc:
@@ -76,6 +81,7 @@ def probe_toolchain_python(image_id):
         try:
             cleanup = subprocess.run(
                 ["docker", "rm", "-f", name], capture_output=True, text=True,
+                encoding="utf-8", errors="backslashreplace",
                 check=False, timeout=10,
             )
             cleanup_note = " Targeted probe cleanup exit code: {}.".format(cleanup.returncode)
@@ -205,7 +211,8 @@ def docker_image_identity(image):
         raise ValueError("Invalid Docker image reference")
     try:
         result = subprocess.run(["docker", "image", "inspect", image, "--format", "{{.Id}}"],
-                                capture_output=True, text=True, check=False,
+                                capture_output=True, text=True, encoding="utf-8",
+                                errors="backslashreplace", check=False,
                                 timeout=DOCKER_METADATA_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired as exc:
         raise ValueError("Docker image inspect timed out: {}".format(image)) from exc
@@ -228,7 +235,8 @@ def doctor(args):
         try:
             engine = subprocess.run(
                 ["docker", "info", "--format", "{{.ServerVersion}}"],
-                capture_output=True, text=True, check=False,
+                capture_output=True, text=True, encoding="utf-8",
+                errors="backslashreplace", check=False,
                 timeout=DOCKER_METADATA_TIMEOUT_SECONDS,
             )
             probe["docker_engine"] = engine.returncode == 0
@@ -311,7 +319,7 @@ def intake(args):
 def artifact_find(filename, started):
     # Kneron's internal compiler logs may land outside the mounted work folder.
     candidates = []
-    for root in (Path("/workspace/.tmp"), Path("/data1/kneron_flow"), Path("/tmp")):
+    for root in (Path("/workspace/.tmp"), Path("/data1"), Path("/tmp")):
         if not root.is_dir():
             continue
         try:
@@ -319,8 +327,8 @@ def artifact_find(filename, started):
         except OSError:
             pass
     fresh = [x for x in candidates if x.stat().st_mtime >= started - 5]
-    pool = fresh or candidates
-    return max(pool, key=lambda x: x.stat().st_mtime) if pool else None
+    # Never misattribute an old compiler report to the current evaluation.
+    return max(fresh, key=lambda x: x.stat().st_mtime) if fresh else None
 
 
 def inspect_cpu_partitions(path):
@@ -332,6 +340,12 @@ def inspect_cpu_partitions(path):
         if parts and parts[0] == "c":
             rows.append(row)
     return rows
+
+
+def vendor_failure_markers(text):
+    """Explicit compiler rejection only; shape-inference warnings are not failures."""
+    corpus = text.lower()
+    return [marker for marker in VENDOR_FAILURE_MARKERS if marker in corpus]
 
 
 def docker_evaluate(args):
@@ -356,11 +370,19 @@ def docker_evaluate(args):
     print("Kneron evaluate() starting", flush=True)
     km = ktc.ModelConfig(args.model_id, args.model_version, "720", onnx_model=optimized)
     started = time.time()
-    evaluation = km.evaluate()
-    text = str(evaluation)
+    evaluation = None
+    vendor_error = None
+    try:
+        evaluation = km.evaluate()
+    except Exception as exc:
+        vendor_error = "{}: {}".format(type(exc).__name__, exc)
+        print("KNERON_EVALUATE_EXCEPTION: " + vendor_error, file=sys.stderr, flush=True)
+    text = "" if evaluation is None else str(evaluation)
     dump = root / "KNERON_EVALUATOR_OUTPUT.txt"
     dump.write_text(text + "\n", encoding="utf-8")
-    print(text, flush=True)
+    if text:
+        print(text, flush=True)
+    # Harvest while the container still exists, even after a vendor exception.
     collected = {}
     for filename in ("ioinfo.csv", "model_fx_report.json", "model_fx_report.html",
                      "batch_compile.log", "backtrace.log"):
@@ -372,6 +394,11 @@ def docker_evaluate(args):
             if found.resolve() != target.resolve():
                 shutil.copyfile(found, target)
             collected[filename] = sha256(target)
+    artifact_text = "\n".join(
+        (root / filename).read_text(encoding="utf-8", errors="replace")
+        for filename in collected if filename.endswith((".log", ".json", ".csv"))
+    )
+    vendor_markers = vendor_failure_markers(text + "\n" + artifact_text)
     ioinfo = root / "ioinfo.csv"
     cpu = inspect_cpu_partitions(ioinfo if ioinfo.exists() else None)
     status = {"schema": SCHEMA, "status": "EVALUATOR_COMPLETED_REQUIRES_REPORT_REVIEW",
@@ -379,12 +406,18 @@ def docker_evaluate(args):
               "runner_sha256": receipt["runner_sha256"], "model_id": args.model_id,
               "model_version": args.model_version, "platform": "720",
               "optimizer_backend": optimizer_backend,
+              "vendor_failure_markers": vendor_markers,
+              "vendor_exception": vendor_error,
               "before": graph_contract(model), "after": opt_contract,
               "artifact_sha256": collected, "n_cpu_partition_rows": len(cpu),
               "cpu_partition_rows": cpu, "ioinfo_found": ioinfo.is_file(),
               "npu_only_verified": False,  # needs independent review of full compiler output
               "float_parity_checked": False, "bie_generated": False,
               "nef_compiled": False, "physical_kl720_inference": False}
+    if vendor_error or vendor_markers:
+        status["status"] = "KNERON_EVALUATION_FAILED"
+        dump_json_new(root / "M3C_KNERON_FAILURE.json", status)
+        raise ValueError("Kneron evaluation failed; see M3C_KNERON_FAILURE.json")
     dump_json_new(ev_file, status)
     print("M3C_KNERON_EVALUATOR_COMPLETED_REQUIRES_REPORT_REVIEW", flush=True)
     print("CPU partition rows:", len(cpu), "IO info found:", ioinfo.is_file(), flush=True)
@@ -415,20 +448,36 @@ def evaluate(args):
     start = time.time()
     print("Starting Docker evaluator; output streams to console and work log.", flush=True)
     log_path = root / "WINDOWS_DOCKER_CONSOLE.txt"
-    with log_path.open("x", encoding="utf-8") as log:
+    raw_path = root / "WINDOWS_DOCKER_CONSOLE.raw"
+    # Docker emits bytes, not locale-encoded Windows text. Keep the exact bytes;
+    # never let Japanese Windows cp932 abort the stream before receipts are saved.
+    with raw_path.open("xb") as raw_log, log_path.open("x", encoding="utf-8") as log:
         with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              text=True, bufsize=1) as process:
-            for line in process.stdout:
+                              bufsize=0) as process:
+            for raw_line in process.stdout:
+                raw_log.write(raw_line)
+                raw_log.flush()
+                line = raw_line.decode("utf-8", errors="backslashreplace")
                 log.write(line)
                 log.flush()
-                print(line, end="", flush=True)
+                # ASCII-safe console output even if a Windows terminal uses cp932.
+                print(line.encode("ascii", errors="backslashreplace").decode("ascii"),
+                      end="", flush=True)
             exit_code = process.wait()
+    markers = vendor_failure_markers(log_path.read_text(encoding="utf-8"))
     status = {"schema": SCHEMA, "stage": "evaluate", "image_reference": args.image,
               "docker_image_id": image_id, "model_sha256": receipt["model_sha256"],
               "toolchain_run_exit_code": exit_code, "elapsed_seconds": time.time() - start,
+              "raw_console_sha256": sha256(raw_path),
+              "console_decode": "utf-8/backslashreplace",
+              "vendor_failure_markers": markers,
               "evaluation_receipt_exists": (root / "M3C_KNERON_EVAL_RECEIPT.json").is_file(),
+              "vendor_failure_receipt_exists": (root / "M3C_KNERON_FAILURE.json").is_file(),
               "bie_generated": False, "nef_compiled": False, "physical_kl720_inference": False}
     dump_json_new(root / "WINDOWS_DOCKER_EXECUTION.json", status)
+    if markers:
+        raise ValueError("KL720 compiler reported a failure ({}); see raw console and vendor report".format(
+            ", ".join(markers)))
     if exit_code != 0 or not status["evaluation_receipt_exists"]:
         raise ValueError("Kneron evaluate() did not complete; see WINDOWS_DOCKER_CONSOLE.txt")
     check_bundle(root, need_optimized=True)
