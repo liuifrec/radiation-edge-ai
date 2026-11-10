@@ -88,6 +88,28 @@ cd C:\Users\yul03\Projects\radiation-edge-ai
 
 Results are under `D:\radiation-edge-ai-data\scratch\perilipin2_m3c_poc_v1`. The workflow is **new-only**: never delete results to rerun an earlier stage; use a new `-RunName` such as `perilipin2_m3c_trial2`. The Docker image is inspected for its actual image ID and invoked by that immutable local ID with `--pull never`; any difference between model bytes and the frozen manifest stops processing. The evaluator uses the **validated Kneron Toolchain v0.33.1 interpreter** at `/workspace/miniconda/bin/python` (Python 3.7.15, observed ONNX 1.7.0), rather than `/usr/bin/python3`. `Doctor` probes that interpreter for ONNX, KTC and **either** the modern `kneronnxopt.optimize` or the legacy `ktc.onnx_optimizer.onnx2onnx_flow` interface, as in the already validated NASA/KL720 pipeline. The `Evaluate` stage repeats that probe before starting model processing; it prints progress live while saving the same lines to `WINDOWS_DOCKER_CONSOLE.txt`. Do not install additional ONNX packages into system Python in Docker. The Docker helper is copied into the work directory and hash bound at intake.
 
+**November 10 Windows CP932 / compiler-front-end diagnostic:** A real KL720
+evaluation reached `kdp720/compiler frontend`, printed
+`Failure for model "input/input"`, then the *Windows host* incorrectly
+decoded UTF-8/binary Docker output as Japanese `cp932` and crashed with
+`UnicodeDecodeError`. The runner now streams raw binary bytes without the
+Windows text decoder. It preserves both `WINDOWS_DOCKER_CONSOLE.raw` (exact
+bytes; never published) and `WINDOWS_DOCKER_CONSOLE.txt` (UTF-8 with
+undecodable bytes escaped as `\\xNN`), and always writes
+`WINDOWS_DOCKER_EXECUTION.json` after Docker returns. An explicit
+`Failure for model` is a blocked compiler gate, **even when the vendor
+process exits zero or writes an evaluation receipt**. The Docker helper
+attempts to harvest fresh `batch_compile.log`, `backtrace.log` and model
+reports while its transient container is still alive, including when vendor
+`evaluate()` throws; it then writes `M3C_KNERON_FAILURE.json`.
+The raw failure log and reports stay under D: and must not be committed.
+
+This **does not fix Kneron compiler compatibility**. It only unmasks the real
+vendor error so the next action can be based on evidence. If the compiler
+rejects the graph, do not run Parity, PTQ, BIE, NEF or hardware inference.
+Use a brand-new `-RunName` when retrying after a runner update because
+`M3C_HOST_READY.json` hash-freezes the copied runner.
+
 **After a failed evaluation:** preserve the failed work directory and its `WINDOWS_DOCKER_EXECUTION.json` / `WINDOWS_DOCKER_CONSOLE.txt`; its runner was copied and hash-frozen at import. After changing the repository runner, first fetch the branch and create an **entirely new** `-RunName` using the original source folder (`-Stage Import`), then `-Stage Evaluate`. Never edit the copied runner or delete the older result to force reuse. For example:
 
 ```powershell
