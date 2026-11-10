@@ -13,7 +13,6 @@ frozen ONNX and earlier reports remain immutable. No Docker, BIE, NEF, PTQ.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from collections import Counter
 from pathlib import Path
