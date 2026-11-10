@@ -402,6 +402,27 @@ reproducers. Do not indefinitely mutate the scientific model to
 bypass an unstable compiler. Even vendor success remains only a
 feasibility result; no hardware or biological endpoint is established.
 
+## 3G. November 10 depthwise-deconv vendor result: compiler invalid input
+
+The fully FP32 parity-verified 91-node Resize-free graph also failed in
+Kneron v0.33.1. This time the reported failure was
+`kdp720/compiler: compiler invalid input`, with backtrace at
+`PreprocessVisitor::Visit(ConvTransposeNode*) ->
+ConvTransposeNode::InferPadding() -> InvalidProgramInput`.
+This is **not** the original Resize assertion, nor proof of unsupported
+depthwise groups or padding without a smaller isolating test.
+
+The controlled graph-transformation series has reached its stop
+condition. **Freeze all existing trial folders.** No more speculative
+edits to the scientific network, PTQ, NEF, or performance claims.
+Escalate with the sanitized, evidence-bounded issue report
+[PERILIPIN2_KL720_COMPILER_ISSUE_20261110.md](PERILIPIN2_KL720_COMPILER_ISSUE_20261110.md).
+The new `perilipin2_kl720_synthetic_repro.py` script generates
+shareable synthetic-only single-operator models; those have **not**
+been validated with the vendor compiler and are not yet proven
+minimal reproductions. This branch remains draft and separate from
+production DNAi/NASA work.
+
 ## 4. Inspection and evidence gates
 
 - `M3C_HOST_READY.json`: parity result SHA256, exact 1×3×512×512 input and 1×2×512×512 logits output, graph operators and runner identity.
