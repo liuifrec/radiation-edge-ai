@@ -100,3 +100,44 @@ versioned numerical-portability criterion is justified. Any such future policy
 must retain this exact mismatch record and require unchanged object identities,
 classification decisions and endpoints; it must not be chosen to hide an
 unexplained discrepancy or change biology to obtain a pass.
+
+
+## Completed real-image audit: decision invariants preserved
+
+The Alienware audit of the real two-field Windows run completed successfully.
+The original strict receipt remains `TRACKA_REFERENCE_MISMATCH`; it is not
+rewritten or deleted. The complete saved-file audit found:
+
+- all 14 quantitative arrays exact;
+- the other four tables exact;
+- object catalog row keys exact;
+- object `status` and `reason` exact;
+- 73 differing cells across 54 catalog rows, all confined to finite
+  `axis_ratio` (48 cells) or `major_axis_px` (25 cells);
+- maximum absolute deltas: `4.8E-14` for axis ratio and `6E-14` pixels for
+  major axis;
+- maximum symmetric relative deltas approximately `4.45E-15` and
+  `3.27E-16`, respectively;
+- maximum binary64 ULP distances 27 and 2, respectively;
+- **zero recorded morphology-threshold decision changes**.
+
+This demonstrates that the saved object identities and all recorded downstream
+classification decisions are invariant in this replay even though exact decimal
+serialization of two derived morphology descriptors is not byte/numeric-text
+identical. The audit does not establish the underlying library/CPU cause.
+
+A secondary portability classification is therefore now reported using
+**decision invariants, not a chosen numeric tolerance**. It passes only when all
+of the following are true simultaneously: all 14 arrays exact; all non-catalog
+tables exact; catalog columns and row keys exact; status exact; reason exact;
+all remaining differences are finite morphology values; and zero stored-value
+threshold decisions change.
+
+When these conditions hold, the audit records:
+`PORTABILITY_INVARIANTS_PASS_EXACT_MISMATCH_RETAINED`.
+
+This status does not change the old exact-match gate, does not accept arbitrary
+small deltas, and does not constitute biological validation or KL720 validation.
+A future run with any changed object identity, status, reason, non-morphology
+field, mask/array, endpoint, or threshold decision must fail the portability
+classification regardless of delta magnitude.
