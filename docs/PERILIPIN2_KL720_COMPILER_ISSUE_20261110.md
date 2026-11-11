@@ -134,6 +134,46 @@ under the same pinned Docker image before claiming a minimal
 reproduction. Never include the original 2 MB model or private
 measurements in a public bug report.
 
+## November 11 result: synthetic cases generated and host-validated
+
+Four synthetic-only standalone models were produced on Windows under
+`D:\radiation-edge-ai-data\scratch\perilipin2_kl720_synthetic_repro_20261111_v1`.
+Each returned ONNX Runtime maximum absolute error 0.0 against 2x nearest
+replication. The generator reported **no vendor compilation**:
+
+| Case | SHA256 |
+| --- | --- |
+| `control_c1_h8` | `717ac4bfe568bbdb00438ac752b35683d62b86b5a739a4c9a5822c844a415bea` |
+| `group_c24_h8` | `bfae5b1c30528c7a50e63a696297dee1d8ba643a2352d60094dfb78f8de629f0` |
+| `group_c96_h8` | `37b3fa71296a0b95a785de27f15bbe5c01fd95afb200b64e32162aa95d79a9a0` |
+| `stage_c96_h32` | `185abfa06e4932e89bea311446156dcd463fe8c09948f60e29c00f046494348d` |
+
+The next test targets **only** the simplest `control_c1_h8` graph, using
+the pinned v0.33.1 Kneron image. An independent Python script checks
+the manifest, synthetic ONNX hash, exact one-node ConvTranspose contract,
+image identity, and a fresh output folder before invoking Docker.
+The container re-verifies the staged candidate and runs only
+`ktc.ModelConfig(..., onnx_model=model).evaluate()` (no graph
+re-optimization). It saves byte-exact console logs and a fail-closed
+vendor report. No microscopy data or original model are loaded.
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+git fetch origin feature/perilipin2-windows-m3c-poc
+git merge --ff-only FETCH_HEAD
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$Synthetic = 'D:\radiation-edge-ai-data\scratch\perilipin2_kl720_synthetic_repro_20261111_v1'
+$Vendor = 'D:\radiation-edge-ai-data\scratch\perilipin2_kl720_vendor_control_c1_h8_20261111_v1'
+& $Python .\scripts\windows\perilipin2_kl720_synthetic_vendor_gate.py --manifest-dir $Synthetic --case control_c1_h8 --out $Vendor
+Get-Content "$Vendor\SYNTHETIC_VENDOR_EXECUTION.json"
+if (Test-Path "$Vendor\SYNTHETIC_VENDOR_REPORT.json") { Get-Content "$Vendor\SYNTHETIC_VENDOR_REPORT.json" }
+if (Test-Path "$Vendor\backtrace.log") { Get-Content "$Vendor\backtrace.log" }
+```
+
+Do **not** run the other three variants until this control's compiler
+response is reviewed. `VENDOR_RETURNED_REQUIRES_REPORT_REVIEW` is
+not a successful NEF compilation or an NPU-only result.
+
 ## Questions for the Kneron engineering team
 
 1. For KL720 Toolchain v0.33.1, what are the exact supported
