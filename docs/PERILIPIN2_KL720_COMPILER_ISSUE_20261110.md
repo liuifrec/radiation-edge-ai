@@ -174,6 +174,62 @@ Do **not** run the other three variants until this control's compiler
 response is reviewed. `VENDOR_RETURNED_REQUIRES_REPORT_REVIEW` is
 not a successful NEF compilation or an NPU-only result.
 
+## November 11 control result: 1-channel ConvTranspose frontend accepted
+
+The smallest standalone **synthetic** trial, `control_c1_h8`, was
+submitted to the pinned KL720 Toolchain v0.33.1 image without re-optimization.
+The candidate SHA256 matched the generator receipt:
+`717ac4bfe568bbdb00438ac752b35683d62b86b5a739a4c9a5822c844a415bea`.
+
+The toolchain console reported:
+
+```text
+Success for model "input/input" when running "general/Success"
+kdp720/compiler frontend: checkmark
+kdp720/compiler_cfg: checkmark
+kdp720/compiler: checkmark
+kdp720/cpu_node: N/A
+SYNTHETIC_KL720_INNER_STATUS: VENDOR_RETURNED_REQUIRES_REPORT_REVIEW
+SYNTHETIC_KL720_HOST_STATUS: VENDOR_RETURNED_REQUIRES_REPORT_REVIEW
+```
+
+The vendor's node report labeled the zero-insertion, convolution and
+output-reformat operations as `NPU`. Its estimated
+`kdp720/ip_eval/ITC(ms)` was `0.00591125 ms` with estimated
+`169169 FPS`. **These figures are vendor analytic estimates for a
+tiny synthetic model, not measured on-device performance.**
+No quantization experiment, NEF, or physical KL720 inference was performed
+by this controlled gate.
+
+**Interpretation:** `ConvTranspose` with 2x2 kernel, stride 2,
+zero pads, and `group=1` is accepted as an isolated one-channel
+case by this compiler. This rules out an unconditional prohibition
+of all such `ConvTranspose` nodes. It does not establish support
+for `group=24`, `group=96`, the full 91-node decoder, or hardware
+inference. `VENDOR_RETURNED_REQUIRES_REPORT_REVIEW` remains an
+appropriately conservative status.
+
+Next: compare the already-generated `group_c24_h8` model under the
+same pinned image, in its own **new** output directory. Do not modify
+or rerun the frozen `control_c1_h8` folder. Record the vendor flow table,
+CPU/NPU report, any backtrace and both gate receipts. If the grouped
+case fails, isolate group-count effects from channel-count effects
+with a separate synthetic control rather than changing the trained
+Perilipin2 model.
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+git fetch origin feature/perilipin2-windows-m3c-poc
+git merge --ff-only FETCH_HEAD
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$Synthetic = 'D:\radiation-edge-ai-data\scratch\perilipin2_kl720_synthetic_repro_20261111_v1'
+$Vendor = 'D:\radiation-edge-ai-data\scratch\perilipin2_kl720_vendor_group_c24_h8_20261111_v1'
+& $Python .\scripts\windows\perilipin2_kl720_synthetic_vendor_gate.py --manifest-dir $Synthetic --case group_c24_h8 --out $Vendor
+Get-Content "$Vendor\SYNTHETIC_VENDOR_EXECUTION.json"
+if (Test-Path "$Vendor\SYNTHETIC_VENDOR_REPORT.json") { Get-Content "$Vendor\SYNTHETIC_VENDOR_REPORT.json" }
+if (Test-Path "$Vendor\backtrace.log") { Get-Content "$Vendor\backtrace.log" }
+```
+
 ## Questions for the Kneron engineering team
 
 1. For KL720 Toolchain v0.33.1, what are the exact supported
