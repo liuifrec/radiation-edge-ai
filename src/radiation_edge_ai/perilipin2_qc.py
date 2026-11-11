@@ -252,14 +252,21 @@ def pack_fingerprint(bundle_hash, source_dataset, patches):
 def crop_original_pixels(bundle, field, p, dest):
     from PIL import Image
     source = core.contained(bundle, field['assets']['rgb'])
-    original = core.load_rgb(source)
     y, x, w, h = p['y'], p['x'], p['width'], p['height']
-    if original.shape[:2] != (int(field['original_record']['height']), int(field['original_record']['width'])):
-        raise ValueError('Input image dimensions changed')
-    crop = Image.fromarray(original[y:y+h, x:x+w])
-    if crop.size != (w, h):
-        raise ValueError('Incomplete crop')
-    crop.save(dest, format='PNG')
+    # Same image-mode/frame/EXIF policy as the frozen M2 load_rgb()
+    # implementation. Cropping RGB with Pillow retains original pixel values.
+    with Image.open(source) as image:
+        if getattr(image, 'n_frames', 1) != 1 or image.mode not in ('RGB', 'RGBA'):
+            raise ValueError('Expected a single RGB brightfield image')
+        if image.getexif().get(274, 1) != 1:
+            raise ValueError('EXIF rotation is not silently applied')
+        if image.size != (int(field['original_record']['width']),
+                          int(field['original_record']['height'])):
+            raise ValueError('Input image dimensions changed')
+        crop = image.convert('RGB').crop((x, y, x+w, y+h))
+        if crop.size != (w, h):
+            raise ValueError('Incomplete crop')
+        crop.save(dest, format='PNG')
     with Image.open(dest) as check:
         if check.mode != 'RGB' or check.size != (w, h):
             raise ValueError('Crop format/size changed')
