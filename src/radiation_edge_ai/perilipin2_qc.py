@@ -10,13 +10,11 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import importlib.util
 import json
 import math
 import random
 import sys
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -292,10 +290,12 @@ def prepare(args):
     stage.mkdir(parents=True,exist_ok=False)
     try:
         randomized=sorted(patches,key=lambda p:p['patch_id'])
-        rng=random.Random(int(pack_id[:16],16));rng.shuffle(randomized)
+        rng=random.Random(int(pack_id[:16],16))
+        rng.shuffle(randomized)
         fields={f['image_uid']:f for f in manifest['fields']}
         mappings={}
-        crops=stage / 'blind/crops';crops.mkdir(parents=True)
+        crops=stage / 'blind/crops'
+        crops.mkdir(parents=True)
         (stage / 'private').mkdir()
         for index,p in enumerate(randomized,1):
             alias='R{:03d}'.format(index)
@@ -330,7 +330,8 @@ def prepare(args):
                 'no_new_inference':True,'biological_validation':False}
         record['fingerprint_sha256']=core.fingerprint(record)
         core.write_json(stage/'QC_PACK_MANIFEST.json',record)
-        core.verify_bundle(bundle);core.verify_result(run)
+        core.verify_bundle(bundle)
+        core.verify_result(run)
         stage.rename(out)
     except Exception as exc:
         if stage.exists() and not (stage/'QC_PACK_FAILED.json').exists():
@@ -389,7 +390,8 @@ def validate_annotation(pack,review):
     reviewer=review.get('reviewer_code','')
     if not isinstance(reviewer,str) or len(reviewer)>128:
         raise ValueError('Invalid reviewer code')
-    normalized={};complete=0
+    normalized={}
+    complete=0
     for alias,p in pack['patches'].items():
         data=patches.get(alias, {'points':[],'exhaustive_complete':False,'note':''})
         if not isinstance(data,dict) or type(data.get('exhaustive_complete')) is not bool:
@@ -400,7 +402,8 @@ def validate_annotation(pack,review):
         pts=data.get('points')
         if not isinstance(pts,list) or len(pts)>20000:
             raise ValueError('Invalid patch points')
-        unique=set();abs_points=[]
+        unique=set()
+        abs_points=[]
         for q in pts:
             if (not isinstance(q,list) or len(q)!=2 or
                 any(type(v) not in (float,int) or not math.isfinite(v) for v in q)):
@@ -411,7 +414,8 @@ def validate_annotation(pack,review):
                 raise ValueError('Reference point is outside the frozen inner scoring region')
             if tuple(q) in unique:
                 raise ValueError('Duplicate point in patch '+alias)
-            unique.add(tuple(q));abs_points.append([x+p['x'],y+p['y']])
+            unique.add(tuple(q))
+            abs_points.append([x+p['x'],y+p['y']])
         if data['exhaustive_complete']:
             complete+=1
         normalized[p['patch_id']]={'points':abs_points,
@@ -445,7 +449,9 @@ def score(args):
         core.score(SimpleNamespace(bundle=bundle,run=run,
                                    review=stage/'SCORER_INPUT_FROZEN_M2.json',
                                    radius=args.radius,out=stage/'frozen_evaluation'))
-        core.verify_bundle(bundle);core.verify_result(run);verify_pack(root)
+        core.verify_bundle(bundle)
+        core.verify_result(run)
+        verify_pack(root)
         roles={r:0 for r in ROLES}
         fields={}
         for p in private['patches'].values():
