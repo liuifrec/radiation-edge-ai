@@ -6,7 +6,6 @@ identity, selection, exclusion margins, reviewer blinding, and provenance.
 from __future__ import annotations
 
 import csv
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -65,8 +64,10 @@ class QCReviewTests(unittest.TestCase):
         v1=mock.patch.object(qc.core,'verify_bundle',
             return_value=(self.bundle,self.manifest))
         v2=mock.patch.object(qc.core,'verify_result',return_value=self.receipt)
-        v1.start();v2.start()
-        self.addCleanup(v1.stop);self.addCleanup(v2.stop)
+        v1.start()
+        v2.start()
+        self.addCleanup(v1.stop)
+        self.addCleanup(v2.stop)
 
     def make_pack(self):
         def fake_crop(bundle,field,patch,destination):
