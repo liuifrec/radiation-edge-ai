@@ -173,10 +173,33 @@ def run(args):
     array_ok = len(exact['arrays']) == 14 and all(r.get('passed') is True for r in exact['arrays'].values())
     other_tables_ok = all(exact['tables'].get(n, {}).get('passed') is True
                           for n in core.TABLE_KEYS if n != CATALOG)
+    portability_invariants_pass = bool(
+        array_ok and other_tables_ok
+        and summary['columns_and_row_keys_exact']
+        and summary['status_exact'] and summary['reason_exact']
+        and summary['only_finite_morphology_values_differ']
+        and summary['morphology_threshold_decision_changes'] == 0
+    )
+    portability_status = (
+        'PORTABILITY_INVARIANTS_PASS_EXACT_MISMATCH_RETAINED'
+        if portability_invariants_pass else
+        'PORTABILITY_INVARIANTS_FAIL_EXACT_MISMATCH_RETAINED'
+    )
     identity = {
         'schema': SCHEMA, 'status': 'AUDIT_COMPLETE_EXACT_MATCH' if exact['passed'] else 'AUDIT_COMPLETE_EXACT_MISMATCH_REMAINS',
         'diagnostic_only': True, 'original_acceptance_status': receipt['status'],
         'original_receipts_modified': False, 'acceptance_policy_changed': False,
+        'portability_status': portability_status,
+        'portability_invariants_pass': portability_invariants_pass,
+        'portability_invariants': {
+            'all_14_arrays_exact': array_ok,
+            'other_four_tables_exact': other_tables_ok,
+            'object_catalog_columns_and_row_keys_exact': summary['columns_and_row_keys_exact'],
+            'object_status_exact': summary['status_exact'],
+            'object_reason_exact': summary['reason_exact'],
+            'only_finite_morphology_values_differ': summary['only_finite_morphology_values_differ'],
+            'morphology_threshold_decision_changes': summary['morphology_threshold_decision_changes'],
+        },
         'measurement_rerun': False, 'kl720_inference': False, 'biological_validation': False,
         'reference_bundle_fingerprint': manifest['fingerprint_sha256'],
         'source_dataset_id': receipt['dataset_id'], 'audit_script_sha256': core.digest(__file__),
@@ -184,7 +207,7 @@ def run(args):
         'all_14_arrays_exact': array_ok, 'other_four_tables_exact': other_tables_ok,
         'catalog': summary, 'finished_utc': datetime.now(timezone.utc).isoformat(),
         'interpretation_note': 'Delta and ULP metrics describe differences; no value is accepted by tolerance. '
-                               'Threshold comparisons use stored table values. No causal claim about platform math is made.',
+                               'The portability classification is decision-invariant, not magnitude-tolerant: it requires exact arrays, exact non-catalog tables, exact catalog identities/status/reason, only finite morphology-value differences, and zero recorded morphology-threshold decision changes. The original strict exact-match status is retained. No causal claim about platform math is made.',
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     stage.mkdir(exist_ok=False)
@@ -204,6 +227,7 @@ def run(args):
     print('Differing cells / affected rows:', summary['differing_cells'], summary['affected_rows'])
     print('Per-column deltas:', json.dumps(summary['by_column'], sort_keys=True))
     print('Recorded morphology-threshold crossings:', summary['morphology_threshold_decision_changes'])
+    print('Portability classification:', portability_status)
     print('Audit report:', output / 'TRACKA_MISMATCH_AUDIT.json')
     print('All differences:', output / 'ALL_OBJECT_CELL_DIFFERENCES.tsv')
     print('Original acceptance status remains:', receipt['status'])
