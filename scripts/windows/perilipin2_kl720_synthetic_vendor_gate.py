@@ -11,7 +11,6 @@ Compatible with the pinned Kneron toolchain's historical Python 3.7.
 from __future__ import print_function
 
 import argparse
-import json
 import shutil
 import subprocess
 import sys
