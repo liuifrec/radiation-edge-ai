@@ -16,7 +16,8 @@ permissions:
 jobs:
   offline:
     name: Python ${{ matrix.python-version }} offline
-    runs-on: ubuntu-latest
+    # Python 3.9 is not prebuilt for the newer Ubuntu 26.04 runner.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:

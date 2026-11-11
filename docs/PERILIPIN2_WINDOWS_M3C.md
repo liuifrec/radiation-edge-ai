@@ -1,0 +1,439 @@
+# Perilipin2 M3C — Windows / Alienware KL720 engineering integration
+
+**Status:** experimental source integration. The M3B FP32 prototype completed training with eight reviewed calibration patches and ONNX numerical parity on Ubuntu, but **has no reviewed held-out nuclear accuracy score**, no KL720 toolchain evaluation, no BIE, no NEF, no physical KL720 inference and no Windows runtime verification yet. Do **not** include Perilipin2 in the repository's validated assay registry until its own biological endpoint gates are met.
+
+## Architecture and portable deployment contract
+
+```text
+Local Windows data directory (D:, not Git)
+  M3B parity-verified ONNX + ONNX_PARITY.json
+          |
+          v
+PowerShell GUI-ready controller -> standard-library Python intake checks
+          |
+          v
+Kneron toolchain Docker (KL720 graph optimizer + evaluator)
+          |
+          v
+ONNX Runtime CPU original-vs-optimized numeric parity
+          |
+          v
+[Future gated steps] RGB calibration tensors -> INT8 BIE -> BIE parity ->
+  conditional NEF compilation -> physical KL720 inference (known-good PLUS Python)
+          |
+          v
+[Future] CPU foreground/boundary -> nuclei instance reconstruction ->
+  frozen Perilipin2 Track A M2 brown object/counting/reporting
+```
+
+Only **neural model inference** is intended to occur on KL720. Image decoding, RGB normalization, tissue/exclusion masks, watershed instance reconstruction, DAB stain separation, brown-object classification, quantitative tables and HTML dashboard remain on CPU. No scientific endpoint validation is inferred from ONNX/Docker success.
+
+The integration intentionally uses `src/radiation_edge_ai/perilipin2/` without modifying the frozen NASA or DNAi adapters or the active `feature/v0.15-dnai-int16out-preflight` branch.
+
+## 1. Move the TWO frozen model files, once
+
+Use a secure lab-approved local transfer (Windows file share/USB) to copy these two already-generated files from Ubuntu:
+
+```text
+/home/liuyuchen/DNA_fiber_assay/analysis/Perilipin2_EdgeAI_M3B_ONNX_v1/
+    nuclear_foreground_boundary_512_opset11.onnx
+    ONNX_PARITY.json
+```
+
+On the Alienware, store them at:
+
+```text
+D:\radiation-edge-ai-data\models\perilipin2\m3b_poc_v1\
+```
+
+**Do not retrain or run evaluation on the Ubuntu workstation.** The model export is already complete; Windows becomes the engineering execution host. The source model SHA256 must agree with the unchanged `ONNX_PARITY.json`. The two image fields, M1 nuclei, M2 analysis results, training masks, and the model ONNX itself must **never** be uploaded to the public repository.
+
+## 2. Windows prerequisites — one-time
+
+In **PowerShell on the Alienware**, with Docker Desktop already running and its Kneron image already locally available:
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai
+.\scripts\windows\configure_storage.ps1
+.\scripts\windows\probe_kneron_toolchain.ps1
+```
+
+Install host *engineering* requirements into a dedicated Python environment with ONNX, ONNX Runtime and NumPy, not the pinned Kneron PLUS hardware environment. For example, from an already-created Python environment:
+
+```powershell
+python -m pip install -e ".[perilipin2]"
+```
+
+Do not reinstall, upgrade, or import `kp` in this environment; physical inference remains isolated to the separately tested PLUS interpreter. If your Docker image uses a nonstandard tag, pass its exact **already installed** reference via `-Image`. No automatic image pulls occur.
+
+## 3. Run the first Windows-only gates
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai
+
+# Read-only environment and local Docker image inventory.
+.\scripts\windows\run_perilipin2_m3c.ps1 -Stage Doctor
+
+# Fingerprint the exact ONNX and parity receipt, copy to a new D: work directory.
+.\scripts\windows\run_perilipin2_m3c.ps1 -Stage Import `
+  -SourceFolder 'D:\radiation-edge-ai-data\models\perilipin2\m3b_poc_v1'
+
+# Existing Kneron Docker image: optimize + evaluate ONLY; no PTQ/BIE/NEF.
+.\scripts\windows\run_perilipin2_m3c.ps1 -Stage Evaluate `
+  -Image 'kneron/toolchain:latest'
+
+# CPU numerical check between original and Kneron-optimized ONNX.
+.\scripts\windows\run_perilipin2_m3c.ps1 -Stage Parity
+```
+
+Results are under `D:\radiation-edge-ai-data\scratch\perilipin2_m3c_poc_v1`. The workflow is **new-only**: never delete results to rerun an earlier stage; use a new `-RunName` such as `perilipin2_m3c_trial2`. The Docker image is inspected for its actual image ID and invoked by that immutable local ID with `--pull never`; any difference between model bytes and the frozen manifest stops processing. The evaluator uses the **validated Kneron Toolchain v0.33.1 interpreter** at `/workspace/miniconda/bin/python` (Python 3.7.15, observed ONNX 1.7.0), rather than `/usr/bin/python3`. `Doctor` probes that interpreter for ONNX, KTC and **either** the modern `kneronnxopt.optimize` or the legacy `ktc.onnx_optimizer.onnx2onnx_flow` interface, as in the already validated NASA/KL720 pipeline. The `Evaluate` stage repeats that probe before starting model processing; it prints progress live while saving the same lines to `WINDOWS_DOCKER_CONSOLE.txt`. Do not install additional ONNX packages into system Python in Docker. The Docker helper is copied into the work directory and hash bound at intake.
+
+**November 10 Windows CP932 / compiler-front-end diagnostic:** A real KL720
+evaluation reached `kdp720/compiler frontend`, printed
+`Failure for model "input/input"`, then the *Windows host* incorrectly
+decoded UTF-8/binary Docker output as Japanese `cp932` and crashed with
+`UnicodeDecodeError`. The runner now streams raw binary bytes without the
+Windows text decoder. It preserves both `WINDOWS_DOCKER_CONSOLE.raw` (exact
+bytes; never published) and `WINDOWS_DOCKER_CONSOLE.txt` (UTF-8 with
+undecodable bytes escaped as `\\xNN`), and always writes
+`WINDOWS_DOCKER_EXECUTION.json` after Docker returns. An explicit
+`Failure for model` is a blocked compiler gate, **even when the vendor
+process exits zero or writes an evaluation receipt**. The Docker helper
+attempts to harvest fresh `batch_compile.log`, `backtrace.log` and model
+reports while its transient container is still alive, including when vendor
+`evaluate()` throws; it then writes `M3C_KNERON_FAILURE.json`.
+The raw failure log and reports stay under D: and must not be committed.
+
+**Confirmed on 2026-11-10:** The Kneron v0.33.1 vendor table showed
+`kdp720/compiler frontend Err: 134` while its `ktc.ModelConfig.evaluate()`
+returned a success exit code. The first diagnostic runner already blocked the
+outer Windows gate, but still left an internally misleading
+`M3C_KNERON_EVAL_RECEIPT.json`. New runs now recognize nonzero `Err: N` table
+codes before writing any completion receipt; they write
+`M3C_KNERON_FAILURE.json` instead. The existing failed run and its
+`backtrace.log`/`model_fx_report.json` should be inspected **without
+rerunning or deleting it**. This error code alone does not identify whether
+the cause is an unsupported graph structure, compiler bug or resource abort.
+
+This **does not fix Kneron compiler compatibility**. It only unmasks the real
+vendor error so the next action can be based on evidence. If the compiler
+rejects the graph, do not run Parity, PTQ, BIE, NEF or hardware inference.
+Use a brand-new `-RunName` when retrying after a runner update because
+`M3C_HOST_READY.json` hash-freezes the copied runner.
+
+**After a failed evaluation:** preserve the failed work directory and its `WINDOWS_DOCKER_EXECUTION.json` / `WINDOWS_DOCKER_CONSOLE.txt`; its runner was copied and hash-frozen at import. After changing the repository runner, first fetch the branch and create an **entirely new** `-RunName` using the original source folder (`-Stage Import`), then `-Stage Evaluate`. Never edit the copied runner or delete the older result to force reuse. For example:
+
+```powershell
+git fetch origin feature/perilipin2-windows-m3c-poc
+git merge --ff-only FETCH_HEAD  # update only if the worktree has no diverging commits
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$RunName = 'perilipin2_m3c_miniconda_v3'
+.\scripts\windows\run_perilipin2_m3c.ps1 -Stage Doctor -Python $Python
+.\scripts\windows\run_perilipin2_m3c.ps1 -Stage Import -RunName $RunName -Python $Python -SourceFolder 'D:\radiation-edge-ai-data\models\perilipin2\m3b_poc_v1'
+.\scripts\windows\run_perilipin2_m3c.ps1 -Stage Evaluate -RunName $RunName -Python $Python
+```
+
+For device discovery, separate from Docker/model graph evaluation:
+
+```powershell
+.\scripts\windows\run_perilipin2_m3c.ps1 -Stage HardwareProbe `
+  -Kl720Python 'C:\Users\yul03\venvs\kneron720\Scripts\python.exe'
+```
+
+Adjust that interpreter to the **actual** validated Kneron PLUS Python on your machine. Hardware probing scans devices only; it does not load a Perilipin2 NEF.
+
+## Doctor that appears to hang
+
+The Doctor is not physical KL720 inference: it checks Docker, the installed image,
+and a Kneron Python import/optimizer interface. Earlier M3C versions silently
+captured the Docker import output and had no subprocess timeout. On a slow or blocked
+vendor import this appeared as an indefinitely frozen PowerShell prompt.
+
+The current Doctor prints `[Doctor] Checking Docker daemon...`,
+`[Doctor] Inspecting local Kneron image...`, and
+`[Doctor] Importing Kneron toolchain and checking optimizer...`.
+The first two Docker metadata subprocesses have 20-second limits; the last
+Kneron Docker import probe has a 90-second limit. On that timeout only the
+uniquely named temporary `radedge-perilipin2-probe-*` container is targeted
+for cleanup; the original ONNX, existing runs, DNAi and NASA assets are untouched.
+The JSON reports `docker_toolchain_python_ready: false` and
+`M3C_TOOLCHAIN_PROBE_TIMEOUT`. Do **not** advance to Evaluate when that
+field is false. The actual model optimizer may still take longer after the
+preflight passes; the model evaluation has no engineering performance promise.
+
+A Doctor retry only requires fetching the updated worktree; no M3B model re-import.
+If a previous Evaluate attempt was made, its imported runner is separately
+hash-frozen and must be preserved. Re-import under a new `-RunName` after
+updating the repository runner; never edit the frozen runner in place.
+
+## 3B. Isolated proof for the observed Resize compiler assertion
+
+The 2026-11-10 KL720 failure was localized by backtrace to
+`ReplaceResizeWithKneronResize -> ResizeNode::GetVScale -> __assert_fail`.
+All four ONNX nearest/asymmetric/floor Resize nodes receive target sizes from
+a computed tensor (Concat in source, Pad after Kneron optimization). We must
+test whether a fixed-input graph permits a numerically faithful
+representation as constant sizes or explicit integer scales before changing
+the deployment graph. **A suspected Resize incompatibility is not yet a fix.**
+
+Run this HOST-ONLY proof using the already failed, preserved work directory.
+The probe only reads its frozen original/optimized ONNX and manifests, uses
+two deterministic synthetic inputs, checks original-vs-optimized FP32 parity
+and zero foreground/boundary decision flips, and saves experimental variants
+to a NEW separate D: scratch directory. No microscopy image or KL720 device
+is used; it does not run Docker or vendor optimization again.
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+$Python = "D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe"
+$Work = "D:\radiation-edge-ai-data\scratch\perilipin2_m3c_20261110_diag_v2"
+$Output = "D:\radiation-edge-ai-data\scratch\perilipin2_resize_proof_20261110_v1"
+& $Python .\scripts\windows\perilipin2_resize_proof.py --work $Work --out $Output
+Get-Content "$Output\M3C_RESIZE_PROOF.json"
+```
+
+The `M3C_RESIZE_PROOF.json` contains each observed input/output shape,
+integer ratios, original-vs-optimized parity and the two candidate parity
+results. A variant is **only written when** all FP32 parity gates pass.
+A passing result is **not** permission to use a candidate in production:
+every saved variant is still uncompiled, unquantized, has no NEF or physical
+KL720 result, and must undergo its own named, immutable vendor compatibility
+evaluation in a separate subsequent gate.
+
+If the probe fails before output creation, preserve both source work
+directories and share the exact exception. Do not alter the frozen model,
+skip failed parity checks, or merge this experimental PR into main.
+
+## 3C. Pinned KL720 vendor feasibility for an accepted Resize candidate
+
+After **both** host-only FP32 proof gates pass, run this separate vendor
+feasibility gate. It feeds the **already pre-optimized** and hash-proven
+`static-sizes` candidate to the pinned Kneron v0.33.1 Docker image.
+**It deliberately skips Kneron ONNX optimization**, which might reverse
+the graph representation change under test.
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+git fetch origin feature/perilipin2-windows-m3c-poc
+git merge --ff-only FETCH_HEAD
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$ProofDir = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_proof_20261110_v1'
+$VendorOut = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_vendor_static_v1'
+& $Python .\scripts\windows\perilipin2_resize_vendor_gate.py --proof-dir $ProofDir --variant static-sizes --out $VendorOut
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_EXECUTION.json"
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_REPORT.json"
+Get-Content "$VendorOut\VENDOR_DOCKER_CONSOLE.txt" -Tail 100
+```
+
+The gate enforces the original source hash, the candidate's Resize proof
+hash and FP32 parity results, the exact Kneron Docker image ID, and a
+new-only work folder. Output includes a binary-exact vendor transcript,
+a decoded one, vendor reports/backtraces and machine-readable failure
+status. **Do not run the integer-scales trial unless this static-sizes
+attempt fails or gives reason to test the alternative.**
+
+Vendor exit code 0 does not imply success: `Err: N` for nonzero N and
+`Failure for model` mark compiler rejection. A status of
+`VENDOR_RETURNED_REQUIRES_REPORT_REVIEW` is **not** NPU-only validation.
+Check report partition evidence before PTQ, BIE, NEF, device inference,
+or scientific use. Preserve any failed folder; new trials require a
+new `--out` path.
+
+## 3D. November 10 static-sizes KL720 trial: Err: 139
+
+The first `static-sizes` vendor feasibility trial **failed** with
+`kdp720/compiler frontend Err: 139` (typical Linux SIGSEGV exit status).
+The saved backtrace terminates in
+`BatchSizeInterpreter::InterpretAllInputBatch` (via `Graph::InterpretHwShape`),
+not the original `ResizeNode::GetVScale` assertion (`Err: 134`).
+This is a changed compiler failure location, **not** demonstrated compatibility.
+
+KTC prints its flow table directly to stdout while `evaluate()` can return
+only a metadata string. This produced an incorrect inner
+`VENDOR_RETURNED_REQUIRES_REPORT_REVIEW` even though the outer host gate
+correctly recorded `VENDOR_REJECTED`. The vendor gate now treats a **fresh
+`backtrace.log`** as a failure regardless of KTC's return string or process
+exit code. The old static-sizes trial remains frozen and is not rewritten.
+
+Next isolated comparison: run the already parity-proven `integer-scales`
+candidate with the **updated runner** and a new output directory, retaining
+the original compiler evidence:
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+git fetch origin feature/perilipin2-windows-m3c-poc
+git merge --ff-only FETCH_HEAD
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$ProofDir = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_proof_20261110_v1'
+$VendorOut = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_vendor_integer_v1'
+& $Python .\scripts\windows\perilipin2_resize_vendor_gate.py --proof-dir $ProofDir --variant integer-scales --out $VendorOut
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_EXECUTION.json"
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_REPORT.json"
+if (Test-Path "$VendorOut\backtrace.log") { Get-Content "$VendorOut\backtrace.log" }
+```
+
+If integer-scales reproduces `BatchSizeInterpreter` failure, investigate
+dead dynamic shape-computation branches created by the size-input rewrite,
+with another immutable graph cleanup plus strict FP32 parity gate. Do not
+assume dangling nodes are the cause until the graph and compiler are tested.
+
+## 3E. November 10 integer-scales trial: same Err:139
+
+The second parity-proven variant (`integer-scales`) also failed with
+`kdp720/compiler frontend Err: 139`. Its backtrace again terminates
+in `BatchSizeInterpreter::InterpretAllInputBatch`, exactly as in the
+static-sizes trial. The inner and outer gates both correctly recorded
+`VENDOR_REJECTED` after the earlier failure-reporting fix. No BIE, NEF
+or KL720 inference was performed.
+
+**Next isolated hypothesis:** the optimized ONNX may still contain
+unreachable dynamic shape-computation nodes left behind when the
+`Resize` target-size tensor was replaced. These may trigger the compiler's
+shape/batch interpreter even though ONNX Runtime ignores them. This is
+not a proven cause of Err:139.
+
+Test it on Windows using **only the successful static-sizes proof**
+and the original frozen M3C evaluation folder. The new host-only script
+performs backward output-dependency pruning (deletion only), refuses
+nested ONNX control flow or unknown graph inputs, and independently
+checks FP32 outputs and foreground/boundary decisions on the two fixed
+synthetic inputs. No vendor compiler run is made at this stage.
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+git fetch origin feature/perilipin2-windows-m3c-poc
+git merge --ff-only FETCH_HEAD
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$Work = 'D:\radiation-edge-ai-data\scratch\perilipin2_m3c_20261110_diag_v2'
+$ProofDir = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_proof_20261110_v1'
+$Out = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_pruned_proof_20261110_v1'
+& $Python .\scripts\windows\perilipin2_resize_pruned_proof.py --work $Work --proof-dir $ProofDir --out $Out
+if (Test-Path "$Out\M3C_RESIZE_PROOF.json") { Get-Content "$Out\M3C_RESIZE_PROOF.json" }
+```
+
+A `FP32_COMPATIBILITY_CANDIDATES` result with nonzero nodes removed
+and zero parity error supports running one **additional** vendor trial.
+The pruned proof intentionally uses the same manifest schema and
+`static-sizes` variant key as the original gate, but has a different
+folder, filename, SHA256, parent-proof SHA256, and a deletion audit.
+That means the existing `perilipin2_resize_vendor_gate.py` can verify
+it independently by pointing `--proof-dir` to the **pruned proof folder**
+and choosing a new `--out` folder. Do not run the vendor stage before
+seeing the pruned proof's diagnostics.
+
+```powershell
+# ONLY AFTER pruned host FP32 parity passes
+$VendorOut = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_vendor_pruned_static_v1'
+& $Python .\scripts\windows\perilipin2_resize_vendor_gate.py --proof-dir $Out --variant static-sizes --out $VendorOut
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_EXECUTION.json"
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_REPORT.json"
+if (Test-Path "$VendorOut\backtrace.log") { Get-Content "$VendorOut\backtrace.log" }
+```
+
+This graph-pruning experiment does not train or change model weights,
+microscopy inputs, CPU watershed, or DAB brown-object classification.
+Do not merge PR #26 or claim KL720 support unless the vendor results
+and subsequent physical-device tests actually justify it.
+
+## 3F. Post-pruning Err:134 in Kneron CheckBatch; controlled operator alternative
+
+The November 10 pruned static-sizes trial also failed with
+`kdp720/compiler frontend Err: 134`, but **not** the original Resize
+assertion. The backtrace points to
+`Graph::InterpretHwShape -> BatchSizeInterpreter::Process -> CheckBatch
+-> __assert_fail`. This is a separate internal compiler assertion.
+An identical error number does not imply an identical cause.
+
+The prior `Err:139` tests and the pruned `Err:134` test demonstrate that
+merely changing static Resize parameter representations or deleting
+unreachable shape nodes does not make this model compilable. Do not
+revisit these frozen runs or modify the original trained model.
+
+### Last targeted architecture-preserving experiment
+
+Historical KL720 operator documentation lists `ConvTranspose` with
+`strides=[2,2]`, although support for this precise grouped/depthwise
+configuration is **not guaranteed** in Toolchain v0.33.1. For a fixed
+2x nearest-neighbor upsample, a grouped ConvTranspose with
+`group=C`, `strides=[2,2]`, `kernel=[2,2]`, no padding and fixed
+float32 all-one weights of shape `[C,1,2,2]` reproduces each pixel
+in a nonoverlapping 2x2 block. This is a **non-trained representation
+change**, not an independently trained alternative.
+
+First generate the candidate from the previously **pruned, parity-proven**
+static-sizes model. The script enforces the same four measured decoder
+stage shapes, replaces all four active Resize nodes, leaves learned
+weights unchanged, and compares outputs on the two fixed synthetic
+inputs against the frozen original, optimized ONNX and pruned source.
+Only passing candidates are emitted. It does not run Docker.
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+git fetch origin feature/perilipin2-windows-m3c-poc
+git merge --ff-only FETCH_HEAD
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$Work = 'D:\radiation-edge-ai-data\scratch\perilipin2_m3c_20261110_diag_v2'
+$PrunedProof = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_pruned_proof_20261110_v1'
+$Out = 'D:\radiation-edge-ai-data\scratch\perilipin2_depthwise_deconv_proof_20261110_v1'
+& $Python .\scripts\windows\perilipin2_resize_deconv_proof.py --work $Work --pruned-proof $PrunedProof --out $Out
+if (Test-Path "$Out\M3C_RESIZE_PROOF.json") { Get-Content "$Out\M3C_RESIZE_PROOF.json" }
+```
+
+**Only if** the new proof has status
+`FP32_COMPATIBILITY_CANDIDATES`, a `depthwise-deconv`
+`parity_pass: true`, and no nonzero or decision mismatches, run
+the isolated compiler feasibility gate with a NEW output directory.
+The existing `perilipin2_resize_vendor_gate.py` validates that all
+four expected ConvTranspose operators carry the exact fixed
+parameters and all-one kernels. It skips ONNX optimization again.
+
+```powershell
+$VendorOut = 'D:\radiation-edge-ai-data\scratch\perilipin2_resize_vendor_deconv_v1'
+& $Python .\scripts\windows\perilipin2_resize_vendor_gate.py --proof-dir $Out --variant depthwise-deconv --out $VendorOut
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_EXECUTION.json"
+Get-Content "$VendorOut\M3C_RESIZE_VENDOR_REPORT.json"
+if (Test-Path "$VendorOut\backtrace.log") { Get-Content "$VendorOut\backtrace.log" }
+```
+
+**Stop condition:** If this independent operator representation also
+crashes the Kneron frontend, freeze the compiler reproducibility packet
+and escalate to Kneron engineering with anonymized synthetic ONNX
+reproducers. Do not indefinitely mutate the scientific model to
+bypass an unstable compiler. Even vendor success remains only a
+feasibility result; no hardware or biological endpoint is established.
+
+## 3G. November 10 depthwise-deconv vendor result: compiler invalid input
+
+The fully FP32 parity-verified 91-node Resize-free graph also failed in
+Kneron v0.33.1. This time the reported failure was
+`kdp720/compiler: compiler invalid input`, with backtrace at
+`PreprocessVisitor::Visit(ConvTransposeNode*) ->
+ConvTransposeNode::InferPadding() -> InvalidProgramInput`.
+This is **not** the original Resize assertion, nor proof of unsupported
+depthwise groups or padding without a smaller isolating test.
+
+The controlled graph-transformation series has reached its stop
+condition. **Freeze all existing trial folders.** No more speculative
+edits to the scientific network, PTQ, NEF, or performance claims.
+Escalate with the sanitized, evidence-bounded issue report
+[PERILIPIN2_KL720_COMPILER_ISSUE_20261110.md](PERILIPIN2_KL720_COMPILER_ISSUE_20261110.md).
+The new `perilipin2_kl720_synthetic_repro.py` script generates
+shareable synthetic-only single-operator models; those have **not**
+been validated with the vendor compiler and are not yet proven
+minimal reproductions. This branch remains draft and separate from
+production DNAi/NASA work.
+
+## 4. Inspection and evidence gates
+
+- `M3C_HOST_READY.json`: parity result SHA256, exact 1×3×512×512 input and 1×2×512×512 logits output, graph operators and runner identity.
+- `WINDOWS_DOCKER_EXECUTION.json` and `WINDOWS_DOCKER_CONSOLE.txt`: actual Docker image ID, exit code and full console log.
+- `M3C_KNERON_EVAL_RECEIPT.json`, `model_fx_report.html` and `ioinfo.csv` when available: vendor graph result, reported CPU partitions and unsupported operators. **No report = no NPU-only claim**; all Kneron results require manual inspection.
+- `M3C_OPTIMIZED_FP32_PARITY.json`: numeric differences on deterministic synthetic normalized input; does not substitute for real-image or biological evaluation.
+
+The Kneron evaluator may reject M3B's skip-connected nearest-neighbor decoder. In that case preserve the exact toolchain error and work directory; do not rush to BIE or compile. A model that requires CPU neural operators is **not** NPU-only.
+
+## 5. What is deliberately not finished yet
+
+Passing the Windows M3C check will **not** make a Perilipin2 application deployable. We still need a locked calibration set (without validation leakage), Kneron fixed-point BIE/float parity, NEF smoke on the physical KL720, CPU instance reconstruction and *exact M2 downstream endpoint* comparisons with properly reviewed masks. The prior two field images are not biological replicates. The 78.7-second M2 CPU reference replay excluded nuclear segmentation and is **not** a GPU/NPU performance benchmark.
+
+Future GUI integration should call this same gate-oriented Python controller and read the JSON receipts; do not duplicate model science in the GUI. A local folder picker, device status, image preview, run button and QC/export would be a thin front end over this validated pipeline. Do not promise one-click installation until a clean Windows lab-member PC has been tested.
