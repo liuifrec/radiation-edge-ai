@@ -384,7 +384,7 @@ def validate_annotation(pack,review):
     if review.get('schema')!=ANNOTATION_SCHEMA or review.get('review_pack_id')!=pack['review_pack_id']:
         raise ValueError('Annotation belongs to a different review pack')
     patches=review.get('patches')
-    if not isinstance(patches,dict) or not patches or set(patches)-set(pack['patches']):
+    if not isinstance(patches,dict) or set(patches)-set(pack['patches']):
         raise ValueError('Unexpected reviewer patch alias')
     reviewer=review.get('reviewer_code','')
     if not isinstance(reviewer,str) or len(reviewer)>128:
