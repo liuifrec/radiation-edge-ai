@@ -230,6 +230,45 @@ if (Test-Path "$Vendor\SYNTHETIC_VENDOR_REPORT.json") { Get-Content "$Vendor\SYN
 if (Test-Path "$Vendor\backtrace.log") { Get-Content "$Vendor\backtrace.log" }
 ```
 
+## November 11 grouped-control result: `group_c24_h8` accepted
+
+The second fully synthetic case (`group_c24_h8`, C=24, H=W=8,
+`group=24`, 2x2 fixed all-ones kernel, stride 2) was submitted
+without ONNX reoptimization to the same pinned KL720 v0.33.1 image.
+The candidate SHA256 was
+`bfae5b1c30528c7a50e63a696297dee1d8ba643a2352d60094dfb78f8de629f0`.
+
+The vendor console reported `Success for model "input/input"`,
+passing compiler frontend/config/compiler stages and listing
+zero-insertion, convolution and output-reformat as NPU operations.
+The estimated FPS was `114458`, and estimated ITC was
+`0.00873685 ms` (**compiler estimates, not physical-device measurements**).
+The host and container statuses were both
+`VENDOR_RETURNED_REQUIRES_REPORT_REVIEW`; the host receipt recorded
+`toolchain_exit_code=0`, `vendor_failure_markers=[]` and
+`compiler_backtrace_present=false`. Neither NEF compilation nor
+device inference was performed.
+
+**Interpretation:** The vendor frontend accepts a synthetic 24-channel
+depthwise `ConvTranspose` with these attributes, so grouped
+transposed convolution is not categorically rejected. The full
+Perilipin2 model remains unsupported in the tested toolchain.
+
+**Next isolated check:** `group_c96_h8`, retaining the same spatial
+dimensions while increasing the group/channel count from 24 to 96.
+Run only against a new folder, then inspect reports before the
+`stage_c96_h32` test.
+
+```powershell
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$Synthetic = 'D:\radiation-edge-ai-data\scratch\perilipin2_kl720_synthetic_repro_20261111_v1'
+$Vendor = 'D:\radiation-edge-ai-data\scratch\perilipin2_kl720_vendor_group_c96_h8_20261111_v1'
+& $Python .\scripts\windows\perilipin2_kl720_synthetic_vendor_gate.py --manifest-dir $Synthetic --case group_c96_h8 --out $Vendor
+Get-Content "$Vendor\SYNTHETIC_VENDOR_EXECUTION.json"
+if (Test-Path "$Vendor\SYNTHETIC_VENDOR_REPORT.json") { Get-Content "$Vendor\SYNTHETIC_VENDOR_REPORT.json" }
+if (Test-Path "$Vendor\backtrace.log") { Get-Content "$Vendor\backtrace.log" }
+```
+
 ## Questions for the Kneron engineering team
 
 1. For KL720 Toolchain v0.33.1, what are the exact supported
