@@ -89,7 +89,7 @@ jobs:
       - name: Install lightweight host and test dependencies
         run: python -m pip install -e ".[dev]"
       - name: Test desktop commands, Track A guards and byte logging
-        run: python -m pytest -q tests/test_desktop_runtime.py tests/test_perilipin2_tracka.py tests/test_perilipin2_tracka_desktop.py tests/test_tracka_windows_acceptance.py
+        run: python -m pytest -q tests/test_desktop_runtime.py tests/test_perilipin2_tracka.py tests/test_perilipin2_tracka_desktop.py tests/test_tracka_windows_acceptance.py tests/test_tracka_mismatch_audit.py
       - name: Parse PowerShell entrypoints without executing hardware
         shell: powershell
         run: |
