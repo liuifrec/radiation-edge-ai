@@ -93,7 +93,7 @@ jobs:
       - name: Parse PowerShell entrypoints without executing hardware
         shell: powershell
         run: |
-          foreach ($entry in @('scripts/windows/start_radedge_desktop.ps1', 'scripts/windows/run_perilipin2_tracka.ps1')) {
+          foreach ($entry in @('scripts/windows/start_radedge_desktop.ps1', 'scripts/windows/run_perilipin2_tracka.ps1', 'scripts/windows/run_perilipin2_tracka_qc.ps1')) {
             $tokens = $null
             $parseErrors = $null
             $path = (Resolve-Path $entry).Path
