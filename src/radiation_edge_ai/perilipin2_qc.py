@@ -55,7 +55,7 @@ identifiable, discrete compact brown DAB-positive object within the yellow scori
 including objects a detector could have missed. Do not automatically label rings, merged
 structures, diffuse DAB or debris as compact objects. Describe ambiguity in Notes.
 A patch with zero objects is a true reviewed negative ONLY after you deliberately mark
-the exhaustive checkbox. This is provisional object calibration, not validated lipid-droplet biology.
+the exhaustive checkbox. This is provisional object review, not validated lipid-droplet biology.
 Do not open the prediction/QC viewer during independent annotation.
 </div>
 <div class="row"><label>Reviewer code <input id="reviewer" autocomplete="off" placeholder="optional pseudonym"></label>
