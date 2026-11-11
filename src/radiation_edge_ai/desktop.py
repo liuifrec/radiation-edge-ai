@@ -21,6 +21,7 @@ LABELS = {
     "Scan KL720 (no model load)": "device-scan",
     "Run frozen plan (CPU or KL720)": "run-plan",
     "Run assay manifest": "run-assay",
+    "Perilipin2 Track A reference (CPU, saved nuclei)": "tracka-reference",
     "Verify core record/package": "verify",
     "Export assay transaction": "export",
 }
@@ -43,7 +44,6 @@ def main(argv=None):
     if config.is_file():
         try:
             saved = Settings.load(config)
-            # The launcher Python/worktree is explicit, never taken from saved settings.
             initial = Settings(sys.executable, args.data_root, saved.scientific_python,
                                saved.kl720_python, saved.kl720_port, saved.kl720_timeout_ms)
         except (OSError, ValueError, TypeError) as exc:
@@ -56,7 +56,7 @@ def main(argv=None):
     ttk.Label(frame, text="Radiation Edge AI", font=("Segoe UI", 18, "bold")).pack(anchor="w")
     ttk.Label(frame, text=(
         "Existing NASA and DNA-fiber adapters; no Docker/CUDA needed by this launcher.\n"
-        "Prepared plans/manifests only. Perilipin2 and PNKP KL720 execution are NOT enabled."
+        "Track A reference: recompute brown objects with saved nuclei on CPU. Perilipin2/PNKP KL720 remains disabled."
     ), wraplength=990).pack(anchor="w", pady=(4, 12))
     fields = ttk.Frame(frame)
     fields.pack(fill="x")
@@ -97,8 +97,8 @@ def main(argv=None):
     action = tk.StringVar(value=next(iter(LABELS)))
     ttk.Combobox(frame, textvariable=action, values=list(LABELS), state="readonly").pack(fill="x", pady=5)
     ttk.Label(frame, text=(
-        "DNAi manifest: prepared field/windows + existing scientific Python and KL720 Python.\n"
-        "NASA: KL720 uses a frozen run plan; its batch-manifest route remains CPU-only.\n"
+        "DNAi manifest: prepared field/windows + scientific Python and KL720 Python. NASA KL720 uses a frozen plan.\n"
+        "Track A: select TRACKA_INPUT_BUNDLE.json and Scientific Python; no new nuclear segmentation or device access.\n"
         "NPU inference is never replaced by CPU automatically. A returned command is not biological validation."
     ), wraplength=990).pack(anchor="w", pady=5)
     controls = ttk.Frame(frame)
@@ -162,9 +162,9 @@ def main(argv=None):
                 "Explicit KL720 access", "This action accesses the KL720 through your selected PLUS Python.\n"
                 "Close other KL720 jobs first. No automatic CPU fallback will be used.\n\nContinue?", parent=root):
             return
-        if job.action in ("run-plan", "run-assay", "export") and not messagebox.askyesno(
+        if job.action in ("run-plan", "run-assay", "export", "tracka-reference") and not messagebox.askyesno(
                 "Confirm existing workflow", "Run the selected prepared workflow?\n"
-                "Raw-image preprocessing is not provided by this launcher.\n"
+                "Track A uses saved nuclear masks, not new nuclear segmentation.\n"
                 "Core artifact checks and any cached-result reuse remain unchanged.", parent=root):
             return
         busy = True
