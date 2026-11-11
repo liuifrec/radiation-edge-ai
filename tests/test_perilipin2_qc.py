@@ -6,6 +6,9 @@ identity, selection, exclusion margins, reviewer blinding, and provenance.
 from __future__ import annotations
 
 import csv
+import importlib.util
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -225,6 +228,40 @@ class QCReviewTests(unittest.TestCase):
                        pack=self.pack,review=review,out=self.score_output,radius=6.0))
         call.assert_not_called()
         self.assertFalse(self.score_output.exists())
+
+    @unittest.skipUnless(importlib.util.find_spec('PIL'),
+                         'Pillow unavailable for synthetic pixel-level crop test')
+    def test_original_rgb_crop_has_identical_pixel_values(self):
+        import numpy as np
+        from PIL import Image
+        source=self.bundle/'inputs/synthetic_field_0/image.png'
+        source.parent.mkdir(parents=True)
+        y,x=np.indices((260,280))
+        rgb=np.stack([(x%255).astype(np.uint8),
+                      (y%255).astype(np.uint8),
+                      ((x+y)%255).astype(np.uint8)],axis=-1)
+        Image.fromarray(rgb).save(source)
+        field={'assets':{'rgb':'inputs/synthetic_field_0/image.png'},
+               'original_record':{'height':260,'width':280}}
+        dest=self.base/'cropped.png'
+        qc.crop_original_pixels(self.bundle,field,
+                                {'x':13,'y':17,'width':224,'height':224},dest)
+        with Image.open(dest) as image:
+            result=np.asarray(image)
+        self.assertTrue(np.array_equal(result,rgb[17:241,13:237]))
+        self.assertEqual(result.shape,(224,224,3))
+
+    @unittest.skipUnless(shutil.which('node'),
+                         'Node.js unavailable for static browser-JS syntax test')
+    def test_generated_offline_review_javascript_parses(self):
+        html=qc.generate_blind_html('a'*64,
+             {'R001':{'width':224,'height':224,'margin':8}})
+        source=html.split('<script>',1)[1].split('</script>',1)[0]
+        code=self.base/'review-browser.js'
+        code.write_text(source,encoding='utf-8')
+        result=subprocess.run(['node','--check',str(code)],
+                              capture_output=True,text=True,check=False)
+        self.assertEqual(result.returncode,0,result.stderr)
 
     def test_review_pack_never_replaces_existing_output(self):
         self.pack.mkdir()
