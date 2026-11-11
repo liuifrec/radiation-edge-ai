@@ -181,6 +181,9 @@ class OrchestrationTests(unittest.TestCase):
         self.assertFalse(report['acceptance_policy_changed'])
         self.assertFalse(report['measurement_rerun'])
         self.assertTrue(report['all_14_arrays_exact'])
+        self.assertTrue(report['portability_invariants_pass'])
+        self.assertEqual(report['portability_status'],
+                         'PORTABILITY_INVARIANTS_PASS_EXACT_MISMATCH_RETAINED')
         self.assertEqual(report['catalog']['differing_cells'], 1)
         self.assertEqual(self.before, {p: core.digest(p) for p in self.before})
         self.assertEqual(self.fake.verify_bundle.call_count, 2)
@@ -190,6 +193,17 @@ class OrchestrationTests(unittest.TestCase):
         self.assertEqual(len(values), 1)
         self.assertEqual(values[0]['reference_value'], '2.0')
         self.assertEqual(values[0]['actual_value'], '2.0000000000000004')
+
+    def test_portability_invariants_fail_if_status_changes(self):
+        write_table(self.run / 'tables' / audit.CATALOG,
+                    [row(axis_ratio='2.0000000000000004', status='complex_review')])
+        self.fake.compare.return_value = copy.deepcopy(self.comparison)
+        self.assertEqual(audit.run(self.args), 0)
+        report = core.load_json(self.output / 'TRACKA_MISMATCH_AUDIT.json')
+        self.assertFalse(report['portability_invariants_pass'])
+        self.assertEqual(report['portability_status'],
+                         'PORTABILITY_INVARIANTS_FAIL_EXACT_MISMATCH_RETAINED')
+        self.assertFalse(report['catalog']['status_exact'])
 
     def test_missing_different_bundle_or_config_rejects(self):
         for key, value in (('bundle_sha256', 'other'), ('configuration', {}),
