@@ -3,7 +3,6 @@
 No real microscopy, learned model, GPU, Docker or KL720 used by these fixtures.
 """
 from __future__ import annotations
-import json
 import os
 import shutil
 import tempfile
@@ -139,11 +138,13 @@ class FrozenM2Integration(unittest.TestCase):
     def synthetic(cls):
         np = cls.np
         y, x = np.mgrid[:256, :256]
-        h = np.zeros((256, 256)); d = np.full((256, 256), .04)
+        h = np.zeros((256, 256))
+        d = np.full((256, 256), .04)
         n = np.zeros((256, 256), dtype=np.uint32)
         for i, (cx, cy) in enumerate(((50, 52), (195, 52)), 1):
             mask = (x-cx)**2+(y-cy)**2 < 16**2
-            h[mask] = .8; n[mask] = i
+            h[mask] = .8
+            n[mask] = i
         for cx in (65, 125, 188):
             d[(x-cx)**2+(y-145)**2 <= 4**2] = 1.1
         ring = ((x-120)**2+(y-215)**2 >= 12**2) & ((x-120)**2+(y-215)**2 <= 15**2)
