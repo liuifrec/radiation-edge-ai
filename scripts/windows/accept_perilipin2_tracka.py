@@ -1,8 +1,10 @@
 """Verify the copied reference bundle and run the existing Track A analysis.
 
 --create-environment explicitly permits installing the six recorded analysis
-packages into a NEW venv only. An existing environment is checked, never repaired
-or upgraded. No Docker, KL720, model training or changes to assay rules occur.
+packages into a NEW venv only. --base-python selects its interpreter separately
+from the launcher; it is checked before creating any directory or installing.
+Existing environments are checked, never repaired or upgraded. No Docker,
+KL720, model training or changes to assay rules occur.
 """
 from __future__ import annotations
 
@@ -20,6 +22,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 ADAPTER = REPO / 'src/radiation_edge_ai/perilipin2_tracka.py'
 DEFAULT_ROOT = Path(r'D:\radiation-edge-ai-data')
+MIN_ANALYSIS_PYTHON = (3, 11)
+MAX_ANALYSIS_PYTHON = (3, 14)
 
 
 def adapter():
@@ -63,7 +67,57 @@ def checked_call(command):
             result.returncode))
 
 
+def probe_analysis_python(python):
+    """Read-only interpreter preflight; never discover/download/install Python.
+
+    NumPy 2.4 supports CPython 3.11-3.14. This Windows analysis route requires
+    a 64-bit build. Passing this check does not guarantee all pinned wheels
+    are present on the user's package index: pip still checks that normally.
+    """
+    path = Path(python).expanduser().resolve()
+    if not path.is_file():
+        raise ValueError('Analysis base Python does not exist: {}. Select an installed '
+                         '64-bit CPython 3.11-3.14 executable with --base-python; '
+                         'on Windows, py -0p lists installed interpreters.'.format(path))
+    probe = (
+        'import json,struct,sys; '
+        'print(json.dumps({"executable":sys.executable,"version":list(sys.version_info[:3]),'
+        '"implementation":sys.implementation.name,"bits":struct.calcsize("P")*8,'
+        '"prefix":sys.prefix,"base_prefix":sys.base_prefix}))'
+    )
+    result = subprocess.run(
+        [str(path), '-I', '-X', 'utf8', '-c', probe],
+        capture_output=True, encoding='utf-8', errors='backslashreplace',
+        check=False, shell=False, timeout=30)
+    if result.returncode:
+        raise ValueError('Could not inspect analysis Python; no environment setup attempted.\n'
+                         + result.stderr)
+    actual = json.loads(result.stdout)
+    version = actual.get('version') if isinstance(actual, dict) else None
+    if (not isinstance(version, list) or len(version) != 3
+            or any(type(part) is not int or part < 0 for part in version)):
+        raise ValueError('Invalid version metadata from analysis Python')
+    for key in ('prefix', 'base_prefix', 'executable'):
+        if not isinstance(actual.get(key), str) or not actual[key]:
+            raise ValueError('Missing interpreter metadata: ' + key)
+    if (actual.get('implementation') != 'cpython' or actual.get('bits') != 64
+            or not MIN_ANALYSIS_PYTHON <= tuple(version[:2]) <= MAX_ANALYSIS_PYTHON):
+        raise ValueError(
+            'Incompatible analysis Python: {} {} ({}-bit) at {}. '
+            'This reference stack (including NumPy 2.4.x) requires 64-bit CPython '
+            '3.11-3.14. Use --base-python with a compatible installed executable '
+            'and --environment with a NEW folder. No package pins were changed; '
+            'existing environments were not modified.'.format(
+                actual.get('implementation'), '.'.join(map(str, version)),
+                actual.get('bits'), path))
+    return path, actual
+
+
 def check_environment(python, environment, expected):
+    _, interpreter = probe_analysis_python(python)
+    if (Path(interpreter['prefix']).resolve() != environment
+            or Path(interpreter['prefix']).resolve() == Path(interpreter['base_prefix']).resolve()):
+        raise ValueError('Selected analysis interpreter is not the intended isolated venv')
     probe = (
         'import importlib,importlib.metadata,json,sys; '
         'names=json.loads(sys.argv[1]); '
@@ -114,11 +168,16 @@ def run(args):
     else:
         if not args.create_environment:
             raise ValueError('Analysis venv is absent. Use --create-environment to permit first-time setup')
+        # The launcher/SDK Python may be older than the scientific stack.
+        # Validate the explicitly selected base BEFORE mkdir, venv or pip.
+        base, info = probe_analysis_python(getattr(args, 'base_python', None) or sys.executable)
+        for protected in (Path(info['prefix']).resolve(), Path(info['base_prefix']).resolve()):
+            separate(environment, protected)
+        print('TRACKA_ANALYSIS_BASE_VERIFIED: {} | CPython {} | {}-bit'.format(
+            base, '.'.join(map(str, info['version'])), info['bits']), flush=True)
         environment.mkdir(parents=True, exist_ok=False)
-        # Every install command targets only this newly created environment.
-        # pip flags/URLs from a requirements file are never executed.
         print('Creating NEW analysis environment:', environment, flush=True)
-        checked_call([sys.executable, '-X', 'utf8', '-m', 'venv', environment])
+        checked_call([base, '-X', 'utf8', '-m', 'venv', environment])
         checked_call([python, '-X', 'utf8', '-m', 'pip', 'install',
                       '--only-binary=:all:', '--disable-pip-version-check', *pins])
 
@@ -147,6 +206,9 @@ def main():
     parser.add_argument('--bundle', type=Path, default=DEFAULT_ROOT / 'references' /
                         'Perilipin2_TrackA_portable_20261111_v1')
     parser.add_argument('--environment', type=Path, default=DEFAULT_ROOT / 'envs/perilipin2-tracka')
+    parser.add_argument('--base-python', type=Path,
+                        help='installed 64-bit CPython 3.11-3.14 for NEW venv creation; '
+                             'defaults to the launcher interpreter after a compatibility check')
     parser.add_argument('--out', type=Path, help='new result folder; otherwise a unique scratch path')
     parser.add_argument('--create-environment', action='store_true',
                         help='permit installation only when creating a new isolated analysis venv')
