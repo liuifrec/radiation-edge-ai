@@ -269,6 +269,51 @@ if (Test-Path "$Vendor\SYNTHETIC_VENDOR_REPORT.json") { Get-Content "$Vendor\SYN
 if (Test-Path "$Vendor\backtrace.log") { Get-Content "$Vendor\backtrace.log" }
 ```
 
+## November 11 grouped-96 result: isolated KL720 frontend accepted
+
+The third synthetic case, `group_c96_h8`, was submitted to the pinned
+KL720 Toolchain v0.33.1 image without reoptimization:
+
+- Input NCHW `[1,96,8,8]`, output `[1,96,16,16]`
+- `ConvTranspose` with `group=96`, kernel 2x2, stride 2, zero padding
+- Synthetic ONNX SHA256:
+  `37b3fa71296a0b95a785de27f15bbe5c01fd95afb200b64e32162aa95d79a9a0`
+- Vendor stdout: `Success for model "input/input" when running "general/Success"`
+- Host status: `VENDOR_RETURNED_REQUIRES_REPORT_REVIEW`; exit code `0`
+- Vendor failure markers: none; compiler backtrace: absent
+- Listed zero insertion, convolution and reformat operations: `NPU`; CPU nodes: `N/A`
+- Estimated throughput `55966.9 FPS` and ITC `0.0178677 ms`
+  (**analytic toolchain estimates, not device measurements**)
+- No BIE, NEF, quantization proof, or physical-device inference
+
+A second attempt directed at the *same existing output folder* was
+correctly stopped by the no-overwrite guard before starting Docker;
+the successful first-run receipt remains the only trial.
+
+**Finding:** in standalone one-operator tests the pinned compiler accepts
+strided transposed convolution with `group=1`, `group=24`, and `group=96`
+at spatial input size 8x8. Therefore `group=96` alone does not explain
+the 91-node full-network `ConvTransposeNode::InferPadding()` rejection.
+These tests do not establish support at larger spatial dimensions or
+the complex decoder topology.
+
+**Next controlled isolation:** run the pre-generated `stage_c96_h32`
+(input `[1,96,32,32]`, output `[1,96,64,64]`) with a fresh output folder.
+This holds channels, grouping, kernel and stride fixed while changing
+the input spatial size from 8x8 to 32x32. Do not repeat previously
+accepted cases, mutate the full Perilipin2 ONNX, or infer NEF/device support.
+
+```powershell
+cd C:\Users\yul03\Projects\radiation-edge-ai-perilipin2
+$Python = 'D:\radiation-edge-ai-data\envs\perilipin2-m3c\Scripts\python.exe'
+$Synthetic = 'D:\radiation-edge-ai-data\scratch\perilipin2_kl720_synthetic_repro_20261111_v1'
+$VendorOut = 'D:\radiation-edge-ai-data\scratch\perilipin2_kl720_vendor_stage_c96_h32_20261111_v1'
+& $Python .\scripts\windows\perilipin2_kl720_synthetic_vendor_gate.py --manifest-dir $Synthetic --case stage_c96_h32 --out $VendorOut
+if (Test-Path "$VendorOut\SYNTHETIC_VENDOR_EXECUTION.json") { Get-Content "$VendorOut\SYNTHETIC_VENDOR_EXECUTION.json" }
+if (Test-Path "$VendorOut\SYNTHETIC_VENDOR_REPORT.json") { Get-Content "$VendorOut\SYNTHETIC_VENDOR_REPORT.json" }
+if (Test-Path "$VendorOut\backtrace.log") { Get-Content "$VendorOut\backtrace.log" }
+```
+
 ## Questions for the Kneron engineering team
 
 1. For KL720 Toolchain v0.33.1, what are the exact supported
