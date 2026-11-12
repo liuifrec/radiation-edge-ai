@@ -7,7 +7,6 @@ Docker code is Python 3.7-compatible; host must have the existing ONNX tools.
 from __future__ import print_function
 
 import argparse
-import json
 import shutil
 import subprocess
 import sys
