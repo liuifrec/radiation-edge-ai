@@ -10,8 +10,8 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts" / "windows"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-import perilipin2_kl720_stagewise_proof as proof
-import perilipin2_kl720_stagewise_vendor_gate as gate
+import perilipin2_kl720_stagewise_proof as proof  # noqa: E402
+import perilipin2_kl720_stagewise_vendor_gate as gate  # noqa: E402
 
 
 def node(op, inputs, outputs, name="node", nested=()):
