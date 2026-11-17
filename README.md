@@ -27,8 +27,8 @@ and other assay expansion are deferred unless explicitly reprioritized.
 | Model | Role | NASA / physical KL720 status |
 | --- | --- | --- |
 | Existing R1CountNetV1 / NASA R1 v2 | Frozen compact-CNN reference | Historical physical validation completed within its documented scope |
-| MobileNetV2 | First additional backbone | Candidate; NASA adaptation, accuracy and physical execution pending |
-| ResNet18 | First additional residual backbone | Candidate; NASA adaptation, accuracy and physical execution pending |
+| MobileNetV2 | First additional backbone | Model factory and shared training/export implemented; NASA accuracy and physical execution pending |
+| ResNet18 | First additional residual backbone | Model factory and shared training/export implemented; NASA accuracy and physical execution pending |
 | ResNet50 and additional compatible families | Continued breadth and capacity comparisons | Candidate queue, subject to full-graph feasibility and accuracy |
 
 Kneron's [official Model Zoo](https://github.com/kneron/Model_Zoo) lists KL720
@@ -38,14 +38,31 @@ There is no fixed ceiling on the number of models. Count architecture families,
 architecture variants and deployment variants separately, and retain failed
 candidates with their reasons.
 
+### Run the NASA baseline now
+
+From the repository root on the Windows host with the KL720 attached:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\run_nasa_kl720.ps1
+```
+
+The launcher uses the existing PLUS environment, discovers the connected KL720,
+loads the frozen NEF once and performs 2,058 fresh NASA inferences. Each run
+gets a new results folder and a receipt with input hashes, hardware timing and
+a numerical comparison against the historical physical predictions when present.
+See the [NASA local NPU quickstart](docs/NASA_LOCAL_NPU_QUICKSTART.md) for exact
+paths, preflight options, result interpretation and the new training/export commands.
+
 ### Next milestone
 
 Retain the frozen deployment reference and establish one reusable comparison
 workflow for R1CountNetV1, MobileNetV2 and ResNet18 trained on the same grouped
 folds: FP32 evaluation, ONNX parity,
 quantization, compilation, physical inference and a common accuracy/latency
-report. The first implementation step is the shared benchmark specification
-and model factory. NASA KL720 batch integration supports this milestone;
+report. The architecture factory, grouped training adapter and ONNX parity
+export are implemented for the first three models. NASA training results,
+full-graph conversion and physical qualification of the new backbones are the
+next evidence needed. NASA KL720 batch integration supports this milestone;
 general GUI expansion and unrelated compiler investigations are secondary.
 
 ## Accuracy and scientific interpretation
@@ -154,11 +171,12 @@ depends on the completed benchmark and validation evidence.
 
 ## Current implementation and historical release evidence
 
-The reference NASA model has completed physical validation. The shared
-multi-model trainer, model-selection interface and unified NASA KL720 batch
-adapter are planned work, not delivered capabilities. Main also includes later
-DNAi audit utilities. The v0.11 milestone below is a historical release record;
-its test count is not a current-suite count.
+The reference NASA model has completed physical validation. A fresh baseline
+replay launcher and shared three-architecture training/ONNX export workflow
+are implemented. New architecture accuracy, conversion and hardware evidence,
+the model-selection interface and the unified NASA KL720 batch adapter remain
+pending. Main also includes later DNAi audit utilities. The v0.11 milestone
+below is a historical release record; its test count is not a current-suite count.
 
 - **NASA BPS 53BP1**: frozen physical KL720 holdout passed the original
   predeclared biological-fidelity gates (within the documented scope).

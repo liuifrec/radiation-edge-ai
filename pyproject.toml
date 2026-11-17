@@ -23,10 +23,18 @@ dev = [
     "ruff>=0.5",
     "Pillow>=9",
 ]
+nasa = [
+    "torch==2.6.0",
+    "torchvision==0.21.0",
+    "opencv-python-headless==4.11.0.86",
+    "onnx==1.17.0",
+    "onnxruntime==1.20.1",
+]
 
 [project.scripts]
 radedge = "radiation_edge_ai.cli:main"
 radedge-kl720-check = "radiation_edge_ai.hardware.kl720_check:main"
+radedge-nasa = "radiation_edge_ai.nasa_bps.multimodel:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/radiation_edge_ai"]

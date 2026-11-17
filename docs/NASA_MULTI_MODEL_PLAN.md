@@ -204,12 +204,22 @@ finish every branch before starting the NASA benchmark.
 
 ## Current evidence versus planned capability
 
-At this planning checkpoint, the frozen NASA R1 v2 model is the established
+The frozen NASA R1 v2 model is the established
 physical reference. Its seven historical gates passed, with a latent burden
 endpoint, source-limited validation and documented metadata-normalization
 recovery. See the [post-release audit](NASA_R1_V2_POSTRELEASE_AUDIT.md) for the
 current wording of the result.
 
-The multi-architecture benchmark, new model results and unified NASA KL720
-batch path are **planned**. This priority update does not claim that any
-additional NASA architecture has been trained, compiled or run on hardware.
+The first implementation now provides a fresh physical-baseline replay launcher,
+an architecture factory for R1CountNetV1/MobileNetV2/ResNet18, shared source-grouped
+training, and fixed-shape ONNX export with training-source-only calibration
+inputs and parity checks. The common new recipe uses deterministic 16-nucleus
+training minibags, all-nucleus evaluation and a fixed fold-training-only
+BatchNorm recalibration before deployment-state evaluation. It is not a
+reproduction of the original training recipe.
+
+See the [NASA local NPU quickstart](NASA_LOCAL_NPU_QUICKSTART.md) for runnable
+commands and exact result states. Numerical software checks use synthetic
+images. No new NASA accuracy result or new architecture's physical KL720
+execution is claimed. Full-graph vendor conversion, qualification criteria,
+new model results and unified high-level NASA model selection remain open.

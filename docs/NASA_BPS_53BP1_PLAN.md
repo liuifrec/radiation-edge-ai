@@ -33,6 +33,7 @@ validated every condition or mouse strain.
 
 ## Current operational references
 
+- [Run the KL720 and train/export the first three architectures](NASA_LOCAL_NPU_QUICKSTART.md)
 - [Multi-model plan and next steps](NASA_MULTI_MODEL_PLAN.md)
 - [Project charter and priorities](PROJECT_CHARTER.md)
 - [R1 v2 input and contrast definitions](NASA_BPS_R1_V2_CONTRAST_POLICY.md)
