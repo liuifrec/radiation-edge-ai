@@ -16,7 +16,8 @@ permissions:
 jobs:
   offline:
     name: Python ${{ matrix.python-version }} offline
-    runs-on: ubuntu-latest
+    # Python 3.9 PLUS compatibility remains required; Ubuntu 26.04 has no 3.9 build.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -77,3 +78,48 @@ jobs:
             printf 'Checking: %s\n' "${changed[@]}"
             python -m ruff check --select E4,E7,E9,F "${changed[@]}"
           fi
+
+  nasa-models:
+    name: NASA model training and ONNX contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU scientific test environment
+        run: |
+          python -m pip install 'torch==2.6.0' 'torchvision==0.21.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,nasa]'
+          python -m pip check
+      - name: Exercise architectures and synthetic train-export workflow
+        env:
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: python -m pytest -q tests/test_nasa_model_factory.py tests/test_nasa_multimodel.py
+
+  windows-launcher:
+    name: Windows NASA launcher contracts
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Parse launcher in native Windows PowerShell
+        shell: powershell
+        run: |
+          $Tokens = $null
+          $ParseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/windows/run_nasa_kl720.ps1'),
+            [ref]$Tokens, [ref]$ParseErrors
+          ) | Out-Null
+          if ($ParseErrors.Count -gt 0) {
+            $ParseErrors | Format-List
+            throw 'NASA launcher has PowerShell syntax errors.'
+          }
+      - name: Install offline test dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Verify Windows path and replay safety contracts
+        run: python -m pytest -q tests/test_nasa_kl720_replay.py

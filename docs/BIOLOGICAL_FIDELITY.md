@@ -1,5 +1,10 @@
 # Biological Fidelity Framework
 
+**Current application (2026-11-17):** the primary project is the
+[NASA multi-model NPU benchmark](NASA_MULTI_MODEL_PLAN.md). This framework
+supplies accuracy and endpoint-validation principles. The other assay examples
+below are general reference material, not equal-priority active workstreams.
+
 ## Purpose
 
 This project distinguishes **image-level accuracy** from **biological measurement fidelity**.

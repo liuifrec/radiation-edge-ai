@@ -1,130 +1,117 @@
 # Project Charter
 
-## Mission
+## Primary direction — effective 2026-11-17
 
-Develop biologically trustworthy edge-AI methods for radiation-response microscopy by converting GPU-trained or otherwise high-capacity reference models into compact KL720-deployable inference systems and determining whether model compression and INT8 quantization preserve the quantitative biological conclusions.
+Build an expanding collection of high-accuracy models using publicly available
+NASA microscopy data, with as many different model architectures as practical
+executing locally on the physical Kneron KL720 NPU.
 
-## Tier I scope
+This owner-directed priority replaces the original three-assay development
+order. The [NASA multi-model plan](NASA_MULTI_MODEL_PLAN.md) is the current
+operational plan. Historical validation records retain their original scope.
 
-Tier I deliberately contains three complementary radiation-relevant phenotyping tracks:
+## Objectives
 
-1. **gamma-H2AX / 53BP1** — DNA-damage burden and repair.
-2. **Micronucleus** — chromosomal damage and genome instability.
-3. **DNA fiber** — replication stress and fork-related phenotypes.
+1. **Model breadth:** qualify multiple distinct architecture families and
+   useful capacity variants on a shared NASA benchmark.
+2. **High accuracy:** measure performance against NASA reference labels and
+   the additional error introduced by quantization and physical deployment.
+3. **Local NPU inference:** provide actual KL720 execution on an ordinary host
+   PC, with explicit CPU preprocessing/postprocessing and no CUDA or cloud
+   requirement for the deployed inference workflow.
+4. **Reproducible comparison:** use common data, task definitions, grouped
+   splits, scoring and declared training/search budgets.
+5. **Practical deployment:** produce model-specific reports covering accuracy,
+   compatibility, latency, memory and complete local workflow behavior.
 
-The project does not treat these as independent software demonstrations. All three are used to test one shared hypothesis:
+The project optimizes model breadth subject to measured accuracy and physical
+deployment requirements. A renamed checkpoint or precision setting does not
+create a new architecture. There is no arbitrary ceiling on the collection.
 
-> Biological endpoints can remain quantitatively trustworthy even when edge-oriented model compression causes some degradation in conventional computer-vision metrics, but the acceptable compression limit must be established empirically for each assay.
+## Initial common task and baseline
 
-## Scientific questions
+Use NASA BPS / OSD-366 sample-level 53BP1 burden regression first. Preserve the
+existing FITC/DAPI/zero-channel, native-scale 256 x 256 input and bag aggregation
+as the initial comparison contract. NASA `avg_nfoci` is a sample/plate-well
+reference; individual network outputs are latent continuous burden scores.
 
-### Q1. Model compression
-How far can each assay model be compressed while maintaining adequate image-level performance?
+The frozen R1 v2 deployment based on `R1CountNetV1` is the first reference
+model. Its original seven biological criteria passed on the recorded physical
+holdout, with the limitations in the
+[post-release audit](NASA_R1_V2_POSTRELEASE_AUDIT.md). That result does not
+automatically qualify future architectures or define their accuracy thresholds.
+For a fair new comparison, retrain the R1CountNetV1 architecture on the same
+grouped folds as the other candidates. The frozen checkpoint is a historical
+deployment anchor, not an out-of-fold model for sources it already trained on.
 
-### Q2. Quantization
-Does INT8 deployment introduce systematic bias that is not obvious from aggregate Dice/F1 metrics?
+Start expansion with MobileNetV2 and ResNet18, then consider ResNet50 and other
+compatible families. Check the complete NASA-adapted graph early. Vendor
+examples are feasibility evidence, not NASA accuracy or adapted-model support.
+Training and distillation may use GPU resources.
 
-### Q3. Biological fidelity
-Are endpoint estimates from edge inference statistically equivalent to the accepted reference workflow?
+## Accuracy and evaluation principles
 
-### Q4. Generality
-Do the same validation principles hold across object detection, segmentation, and single-molecule image analysis?
+Measure two separate quantities for every candidate:
 
-### Q5. Deployment value
-Can the resulting pipelines provide useful throughput on ordinary laboratory PCs without dedicated GPUs?
+- **Reference accuracy:** prediction error and agreement against NASA labels,
+  including source-specific performance and radiation-response endpoints.
+- **Deployment fidelity:** paired changes from the same model's FP32 output
+  to the physical NPU output, including downstream measurements.
 
-## Reference hierarchy
+Use continuous-error metrics for continuous endpoints. Define acceptance
+requirements before candidate evaluation using the benchmark's scientific
+purpose and reference variability. Correlation or classifier-style percentage
+accuracy alone cannot establish regression accuracy.
 
-Every track should preserve a four-level comparison wherever possible:
+Architecture selection uses grouped development evaluation. Keep related
+samples from the same biological source together. Each fold's quantization
+calibration uses only that fold's training sources, excluding its evaluation
+fold even when labels are not read. The previously examined final holdout is
+a historical comparison panel for new work, not newly
+untouched selection data. Independent confirmation requires unused sources or
+acquisitions; otherwise label results as developmental benchmarking.
 
-```text
-R0  manual/public ground truth
-R1  original FP32 teacher/reference workflow
-R2  compact FP32 student
-R3  INT8 KL720 deployment
-```
+## Engineering responsibilities
 
-R0 and R1 are not assumed to be identical. Teacher-vs-human disagreement is part of the error model where public annotations permit it.
+- **Benchmark/model development:** data manifests, architecture factory,
+  common training/scoring, export parity, calibration and compilation.
+- **Deployment runtime:** explicit model selection, physical KL720 execution,
+  consistent preprocessing/aggregation and structured output.
+- **Evidence/reporting:** model and dataset identity, measured accuracy,
+  deployment state, execution timing and reproducible result packages.
 
-## Tier-I biological endpoints
+Keep the application host, scientific runtime, Kneron PLUS runtime and compiler
+container isolated. Extend the shared NASA workflow instead of creating a new
+standalone runner for every architecture. Preserve the frozen R1 v2 evidence
+and evaluators; introduce new benchmark profiles for new models.
 
-### gamma-H2AX / 53BP1
+## Priority boundaries
 
-Primary candidates:
-- foci per nucleus/cell;
-- fraction of foci-positive cells;
-- gamma-H2AX/53BP1 colocalization where supported;
-- dose-response parameters;
-- post-irradiation repair-related change.
+| Work | Priority |
+| --- | --- |
+| NASA common benchmark and additional model architectures | Primary |
+| NASA physical batch inference, model profiles and reporting | Primary enabling work |
+| Accuracy recovery for promising NASA candidates | Primary within the declared development protocol |
+| DNAi and Perilipin2 | Secondary; retain existing work and evidence |
+| Broad desktop expansion | Only when it directly supports the NASA model workflow |
+| Micronucleus, PNKP and other assay expansion | Deferred unless explicitly reprioritized |
 
-### Micronucleus
+Existing secondary PRs can remain open without becoming prerequisites for
+NASA progress. A difficult candidate should receive a documented compatibility
+decision so other models can continue through the common pipeline.
 
-Primary candidates:
-- micronuclei per scored cell;
-- micronucleus-positive cell fraction;
-- binucleated-cell scoring where labels support it;
-- later extension to calibration/dose reconstruction if dose-labelled radiation microscopy is available.
+## Near-term deliverable
 
-### DNA fiber
+A common NASA benchmark that includes the frozen reference and the first
+MobileNetV2/ResNet18 candidates, with explicit per-model states and comparable
+accuracy reports. Qualify each model through FP32 evaluation, conversion,
+physical execution and the declared accuracy criteria. Expand the collection
+once this path is reusable.
 
-Primary candidates:
-- CldU tract length;
-- IdU tract length;
-- total tract length;
-- IdU/CldU or other protocol-appropriate tract ratios;
-- preservation of condition/genotype effect sizes.
+## Publication direction
 
-## Engineering architecture
-
-```text
-reference data
-    |
-FP32 teacher/reference
-    |
-compact student
-    |
-ONNX
-    |
-calibration / INT8 quantization
-    |
-KL720 NEF
-    |
-edge inference
-    |
-CPU post-processing
-    |
-biological measurement
-```
-
-Where an upstream model cannot compile cleanly for KL720, it should be treated as a teacher rather than forcing unsupported operators onto the NPU.
-
-## Validation philosophy
-
-Model accuracy is necessary but not sufficient.
-
-A deployment may be considered biologically acceptable even if some image-level metrics decrease, provided that:
-
-- endpoint agreement remains within a pre-specified scientifically defensible margin;
-- group ordering and principal effects are preserved;
-- no meaningful condition-specific bias is introduced;
-- uncertainty and failure cases are identifiable.
-
-Conversely, excellent pixel/object metrics do not validate deployment if biological endpoints are biased.
-
-## Initial development order
-
-1. Freeze all three public reference baselines.
-2. Convert DNA-fiber segmentation first because a working GPU DNAi reference pipeline already exists.
-3. Build the gamma-H2AX/53BP1 edge proof of concept as the first radiation-biology showcase.
-4. Distill micronucleus inference from a high-capacity public teacher into a compact CNN-compatible student.
-5. Perform shared biological-fidelity and hardware benchmarking.
-6. Package a reproducible demo suitable for internal RERF presentation and later RP development.
-
-## Publication positioning
-
-The first manuscript should be written as a general biological-methods paper rather than a chip-porting report.
-
-**Primary target:** Cell Reports Methods  
-**Fallback:** Radiation Research
-
-The methodological contribution should remain meaningful even if future hardware differs from KL720.
+Develop a reproducible public-data benchmark and model collection for accurate
+local NPU analysis of NASA radiation microscopy. Report architecture breadth,
+absolute accuracy, quantization effects, physical compatibility and local
+workflow cost. Manuscript claims follow completed results; no three-assay
+success requirement or publication venue is predetermined.
