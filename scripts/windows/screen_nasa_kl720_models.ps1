@@ -72,7 +72,16 @@ function Invoke-CandidateCampaign {
     $SourceRoot = Join-Path $RepoRoot 'src'
     $VendorScript = Join-Path $SourceRoot 'radiation_edge_ai\nasa_bps\kneron_candidate_screen.py'
     if ([string]::IsNullOrWhiteSpace($TrainingPython)) {
-        $TrainingPython = Join-Path $Root 'envs\nasa311\Scripts\python.exe'
+        $ScientificCandidates = @(
+            (Join-Path $Root 'envs\nasa311\Scripts\python.exe'),
+            (Join-Path $Root 'envs\nasa39\Scripts\python.exe')
+        )
+        $TrainingPython = $ScientificCandidates |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+        if ([string]::IsNullOrWhiteSpace($TrainingPython)) {
+            throw "No NASA scientific environment was found under '$Root\envs'. Python 3.9 is supported in a separate nasa39 environment; follow docs/NASA_LOCAL_NPU_QUICKSTART.md or pass -TrainingPython '<existing scientific python.exe>'."
+        }
     }
     if (-not (Test-Path -LiteralPath $TrainingPython -PathType Leaf)) {
         throw "Scientific Python not found at '$TrainingPython'. Set up the separate NASA environment in docs/NASA_LOCAL_NPU_QUICKSTART.md or pass -TrainingPython '<existing scientific python.exe>'."

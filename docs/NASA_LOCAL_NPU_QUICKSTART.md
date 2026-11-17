@@ -125,27 +125,60 @@ Training and ONNX export belong in a scientific Python environment, separate
 from the working Python 3.9 Kneron PLUS environment. The new `nasa` extra pins
 the PyTorch/torchvision and ONNX dependencies exercised by the software tests.
 
-For a fresh Python 3.11 environment on Windows:
+An existing **64-bit Python 3.9** installation can create the separate NASA
+environment. Python 3.11 is also supported, but is not required. The NASA extra
+selects ONNX Runtime 1.19.2 on Python 3.9 and 1.20.1 on Python 3.10 or later:
+[1.19.2 provides a Windows Python 3.9 wheel](https://pypi.org/project/onnxruntime/1.19.2/),
+whereas [1.20.1 does not](https://pypi.org/project/onnxruntime/1.20.1/).
+The other model/export pins remain identical. Export manifests record the
+actual dependency versions, and the same numerical parity requirements apply.
+
+From the repository root, use this block when the Windows Python launcher
+lists Python 3.9. The outer block stops the entire setup at the first failure:
 
 ```powershell
-py -3.11 -m venv D:\radiation-edge-ai-data\envs\nasa311
-$TrainPython = 'D:\radiation-edge-ai-data\envs\nasa311\Scripts\python.exe'
-& $TrainPython -m pip install -e '.[nasa]'
-& $TrainPython -m pip check
-& $TrainPython -m radiation_edge_ai.nasa_bps.multimodel list
-& $TrainPython -m radiation_edge_ai.nasa_bps.multimodel preflight
+$TrainPython = 'D:\radiation-edge-ai-data\envs\nasa39\Scripts\python.exe'
+& {
+    $ErrorActionPreference = 'Stop'
+    if (-not (Test-Path -LiteralPath $TrainPython)) {
+        py -3.9 -m venv 'D:\radiation-edge-ai-data\envs\nasa39'
+        if ($LASTEXITCODE -ne 0) { throw 'Could not create the NASA Python 3.9 environment.' }
+    }
+    & $TrainPython -c "import sys, struct; assert sys.prefix != sys.base_prefix; assert struct.calcsize('P') == 8; print(sys.version)"
+    if ($LASTEXITCODE -ne 0) { throw 'A separate 64-bit scientific environment is required.' }
+    & $TrainPython -m pip install --upgrade pip
+    if ($LASTEXITCODE -ne 0) { throw 'NASA pip update failed.' }
+    & $TrainPython -m pip install -e '.[nasa]'
+    if ($LASTEXITCODE -ne 0) { throw 'NASA scientific dependency installation failed.' }
+    & $TrainPython -m pip check
+    if ($LASTEXITCODE -ne 0) { throw 'NASA dependency validation failed.' }
+    & $TrainPython -m radiation_edge_ai.nasa_bps.multimodel list
+    if ($LASTEXITCODE -ne 0) { throw 'NASA model discovery failed.' }
+}
 ```
 
 Run these commands from the repository root. A compatible existing scientific
-environment can also be used. The `nasa` extra does not install Kneron PLUS.
+environment can also be used with its explicit interpreter path. For an
+installed Python 3.11, use `py -3.11` and a separate `nasa311` directory instead.
+Upgrading pip happens only inside the selected scientific environment so an
+older bundled pip can install the editable package. The `nasa` extra does not
+install Kneron PLUS.
 GPU training additionally requires a CUDA-enabled PyTorch installation
 compatible with the machine; verify `torch.cuda.is_available()` before choosing
 `--device cuda`. The CPU path is suitable for software checks, and full training
 may take substantially longer there.
 
+If an earlier setup stopped at `Python 3.11 not found`, the subsequent missing
+`python.exe` errors are consequences of the environment never being created.
+Keep the existing checkout and update it to the Python 3.9 compatibility fix
+before installing `.[nasa]`; the earlier unconditional ONNX Runtime 1.20.1 pin
+cannot install on Python 3.9. An earlier physical KL720 replay is independent
+of scientific-environment setup.
+
 The installed console command is `radedge-nasa`. Listing the three model
 contracts does not import PyTorch, ONNX, OpenCV or the vendor SDK. Preflight
-needs OpenCV to inspect the actual TIFFs.
+needs OpenCV to inspect the actual TIFFs; run `radedge-nasa preflight` before
+training. Candidate-graph screening in the next section needs no NASA data.
 
 ## 3. Screen the complete candidate graphs before full training
 
@@ -184,8 +217,10 @@ image, change the PLUS environment, or connect to the USB dongle.
 `-ToolchainImage` can select a different existing image; its identity is
 recorded and its results belong to that toolchain configuration.
 
-The scientific interpreter defaults to `RADEDGE_NASA_PYTHON` when set,
-otherwise `D:\radiation-edge-ai-data\envs\nasa311\Scripts\python.exe`.
+The scientific interpreter defaults to `RADEDGE_NASA_PYTHON` when set.
+Otherwise it selects an existing `envs\nasa311\Scripts\python.exe` or
+`envs\nasa39\Scripts\python.exe` under `D:\radiation-edge-ai-data`, in that
+order. An explicit `-TrainingPython` selects the requested interpreter.
 `-Root` changes the default data root. Every launch uses a fresh output
 directory; an explicit `-OutputDir` must not already exist.
 
