@@ -1,55 +1,75 @@
 # Radiation Edge AI
 
-**Provenance-aware offline edge AI for quantitative radiation microscopy.** Biological fidelity must be evaluated per assay rather than inferred from deployment or pixel-level accuracy.
+**NASA public-data models for accurate, local NPU inference.**
 
-`radiation-edge-ai` develops and evaluates compact neural-network inference pipelines for the Kneron KL720 NPU, with the central question:
+## Current priority — 2026-11-17
 
-> Can aggressively compressed and INT8-quantized edge models preserve biologically meaningful radiation-response measurements well enough that the resulting scientific conclusions remain equivalent to conventional reference analysis?
+Build an expanding collection of different neural-network architectures that
+achieve high accuracy on **public NASA microscopy data** and execute locally
+on the **physical Kneron KL720 NPU**. Model breadth, measured accuracy and usable
+local inference are the primary development goals.
 
-The project is intentionally evaluated at three levels:
+The first common benchmark is NASA BPS / OSD-366 sample-level 53BP1 burden
+estimation. The existing validated R1 v2 model is the reference anchor; new
+architectures will share a task, data split, preprocessing and evaluator.
+Accuracy against NASA reference measurements and accuracy retained after
+quantization are both evaluated. Training may use a GPU; the deployed workflow
+should run locally without CUDA or cloud inference.
 
-1. **Model level** — FP32 teacher -> compact FP32 student -> INT8 edge model.
-2. **Image level** — segmentation/detection accuracy and error structure.
-3. **Biological level** — preservation of the quantitative endpoint and scientific conclusion.
+**Authoritative current plan:** [NASA multi-model plan](docs/NASA_MULTI_MODEL_PLAN.md).
+This priority supersedes the original three-assay development order.
+DNAi and Perilipin2 retain their existing code and evidence as secondary work.
+Their unresolved experiments do not block NASA model expansion. Micronucleus
+and other assay expansion are deferred unless explicitly reprioritized.
 
-A modest loss in Dice, IoU, F1, or detection sensitivity may be acceptable if the relevant biological measurement remains equivalent. Conversely, a visually accurate model is unacceptable if compression systematically biases dose-response, repair kinetics, micronucleus frequency, or DNA-replication phenotypes.
+### First architecture queue
 
-## Tier I: Radiation Edge Phenotyping
+| Model | Role | NASA / physical KL720 status |
+| --- | --- | --- |
+| Existing R1CountNetV1 / NASA R1 v2 | Frozen compact-CNN reference | Historical physical validation completed within its documented scope |
+| MobileNetV2 | First additional backbone | Candidate; NASA adaptation, accuracy and physical execution pending |
+| ResNet18 | First additional residual backbone | Candidate; NASA adaptation, accuracy and physical execution pending |
+| ResNet50 and additional compatible families | Continued breadth and capacity comparisons | Candidate queue, subject to full-graph feasibility and accuracy |
 
-The long-term portfolio has three complementary assay targets; the current offline demonstrator implements NASA 53BP1 and DNA-fiber:
+Kneron's [official Model Zoo](https://github.com/kneron/Model_Zoo) lists KL720
+examples for the named MobileNet/ResNet models. This motivates the queue; it
+does not validate our NASA-adapted graphs, input geometry or task accuracy.
+There is no fixed ceiling on the number of models. Count architecture families,
+architecture variants and deployment variants separately, and retain failed
+candidates with their reasons.
 
-| Track | Biological axis | Edge-AI task | Primary biological outputs |
-| --- | --- | --- | --- |
-| **gamma-H2AX / 53BP1** | DNA damage and repair | nuclei/foci detection or segmentation | foci per cell, dose-response, repair kinetics |
-| **Micronucleus** | chromosomal damage | nuclei/cell/micronucleus detection or segmentation | micronucleus frequency, cell-level scoring, later biodosimetry |
-| **DNA fiber** | replication stress | fiber segmentation | tract length, fork-related ratios, condition/genotype effect sizes |
+### Next milestone
 
-The shared comparison is:
+Retain the frozen deployment reference and establish one reusable comparison
+workflow for R1CountNetV1, MobileNetV2 and ResNet18 trained on the same grouped
+folds: FP32 evaluation, ONNX parity,
+quantization, compilation, physical inference and a common accuracy/latency
+report. The first implementation step is the shared benchmark specification
+and model factory. NASA KL720 batch integration supports this milestone;
+general GUI expansion and unrelated compiler investigations are secondary.
 
-```text
-manual/public reference
-        vs
-original FP32 teacher
-        vs
-compact FP32 student
-        vs
-INT8 KL720 deployment
-```
+## Accuracy and scientific interpretation
 
-## Core principle: biological fidelity
+Models are assessed against public reference measurements as well as their
+own floating-point outputs. Faithful deployment of an inaccurate model is
+insufficient. For the initial regression task, report sample-level MAE/RMSE,
+agreement, source-specific errors and radiation-contrast preservation;
+correlation is supplementary. Define accuracy requirements and acceptable
+deployment degradation before evaluating candidates.
 
-The primary question is not whether a model survives quantization pixel-for-pixel. It is whether a biologist would reach the **same quantitative conclusion** using the edge deployment.
+NASA `avg_nfoci` is an aggregate sample/plate-well label. Per-nucleus predictions
+remain latent burden scores, not individually supervised focus counts. The
+historical final holdout has already been examined and is a locked historical
+comparison panel for new work. Architecture selection uses grouped development
+evaluation; independent confirmation requires genuinely unused sources or
+acquisitions. See the [benchmark plan](docs/NASA_MULTI_MODEL_PLAN.md) and
+[biological-fidelity framework](docs/BIOLOGICAL_FIDELITY.md).
 
-Planned analyses include conventional computer-vision metrics together with endpoint-specific agreement and equivalence statistics, for example:
-
-- Dice / IoU / precision / recall / F1;
-- Bland-Altman agreement;
-- ICC or other reproducibility measures where appropriate;
-- effect-size preservation;
-- equivalence testing with pre-specified margins;
-- dose-response parameter preservation;
-- latency, model size, RAM, throughput, and hardware requirements;
-- energy per image where measurement is practical.
+Only a model with recorded physical KL720 execution and the applicable
+accuracy result belongs in the accuracy-qualified collection. Compiler
+acceptance, simulator output and device execution have separate statuses.
+CPU preprocessing and postprocessing remain explicit; CPU execution of
+neural-network compute operators is reported separately as hybrid inference.
 
 ## Deployment concept
 
@@ -90,7 +110,7 @@ Large microscopy datasets, proprietary materials, model binaries, and KL720
 build artifacts are not committed to Git. Versioned upstream sources and
 frozen checksum evidence are documented where redistribution is permitted.
 
-## Original roadmap (historical; not the v0.11 release status)
+## Original roadmap (historical; superseded by the NASA multi-model priority)
 
 - **v0.1 — Reference baselines:** reproduce/freeze reference outputs for DNA fiber, gamma-H2AX/53BP1, and micronucleus public datasets.
 - **v0.2 — Compact students:** establish KL720-compatible lightweight FP32 models.
@@ -122,11 +142,23 @@ Full provenance, hashes, protocol-deviation documentation, claim boundaries, and
 
 ## Publication strategy
 
-The project is designed first as a **general biological-methods contribution**, with biological fidelity under model compression as the central methodological advance rather than a hardware demonstration.
+The current manuscript direction is a **NASA public-data benchmark and model
+collection for accurate local NPU inference**. Compare multiple architectures
+on the same task, then report reference accuracy, deployment degradation,
+physical compatibility and complete local workflow performance.
 
-Publication venue will be chosen after the final validation scope is frozen. A public-data/software-only package is being developed as a reproducible methods/software contribution; sufficiently strong independent radiation-biology validation could support reassessment for a field-specific methods venue.
+Biological endpoint fidelity is part of accuracy assessment. A three-assay
+success narrative is no longer a prerequisite. The
+[manuscript outline](manuscript/OUTLINE.md) follows this scope; venue selection
+depends on the completed benchmark and validation evidence.
 
-## Status: verified v0.11 offline two-assay demonstrator
+## Current implementation and historical release evidence
+
+The reference NASA model has completed physical validation. The shared
+multi-model trainer, model-selection interface and unified NASA KL720 batch
+adapter are planned work, not delivered capabilities. Main also includes later
+DNAi audit utilities. The v0.11 milestone below is a historical release record;
+its test count is not a current-suite count.
 
 - **NASA BPS 53BP1**: frozen physical KL720 holdout passed the original
   predeclared biological-fidelity gates (within the documented scope).
