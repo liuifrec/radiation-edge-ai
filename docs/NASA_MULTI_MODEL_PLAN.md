@@ -12,6 +12,12 @@ physical KL720. Expand model breadth through one reusable benchmark and
 deployment workflow. Biological endpoint fidelity remains part of accuracy
 assessment; it is not a reason to limit development to the original model.
 
+The scientific framing is **edge AI for space radiation biology**. The
+[space-biology narrative](SPACE_RADIATION_BIOLOGY_NARRATIVE.md) provides the
+primary-source context and evidence plan. The current platform is a ground
+demonstrator whose next result is an additional accurately evaluated NASA
+architecture executing on physical KL720 hardware.
+
 ## Public data and first task
 
 The initial common dataset is the
@@ -45,8 +51,8 @@ The current input/endpoint definitions are documented in the
 | Candidate | Purpose | Evidence at this planning checkpoint |
 | --- | --- | --- |
 | Frozen NASA R1 v2 / `R1CountNetV1` | Known working compact CNN and deployment anchor | Physical NASA validation recorded; retain original weights and interpretation |
-| MobileNetV2 with scalar regression head | First depthwise-separable backbone comparison | Kneron KL720 example exists; NASA adaptation and execution pending |
-| ResNet18 with scalar regression head | First residual backbone comparison | Kneron KL720 example exists; NASA adaptation and execution pending |
+| MobileNetV2 with scalar regression head | First depthwise-separable backbone comparison | NASA-adapted factory and shared training/export implemented; NASA accuracy, Kneron conversion and physical execution pending |
+| ResNet18 with scalar regression head | First residual backbone comparison | NASA-adapted factory and shared training/export implemented; NASA accuracy, Kneron conversion and physical execution pending |
 | ResNet50 with scalar regression head | Higher-capacity residual comparison | Vendor model listed; exact geometry, resources and NASA graph still require checking |
 | Further compatible families / capacity variants | Grow breadth and explore accuracy/cost tradeoffs | Admit through full-graph feasibility and the shared benchmark |
 
@@ -109,11 +115,11 @@ on the original development sources and cannot supply out-of-fold predictions
 for those sources. Report historical-anchor results separately from the new
 fold-matched baseline.
 
-Refactor a new benchmark entry point around a model factory; existing R1 v2
-training instantiates `R1CountNetV1` directly. Reuse appropriate preprocessing,
-bag aggregation and scoring functions while preserving historical frozen
-scripts and hashes. A new model profile must not overwrite the old model's
-identity or imply that its acceptance transfers automatically.
+The implemented [model factory](../src/radiation_edge_ai/nasa_bps/model_factory.py)
+and [shared training/export entry point](../src/radiation_edge_ai/nasa_bps/multimodel.py)
+reuse appropriate preprocessing, bag aggregation and scoring functions while
+preserving the historical frozen scripts and hashes. A new model profile
+must retain its own identity and acceptance evidence.
 
 ### Accuracy means both reference performance and retained performance
 
@@ -187,15 +193,20 @@ metadata; keep existing dataset/model-binary storage rules and upstream terms.
 
 ## Ordered next work
 
-1. Freeze the common benchmark specification, grouped evaluation roles and
-   accuracy criteria; inventory available unused NASA sources.
-2. Implement a reusable architecture factory and training/export adapter for
-   the existing compact CNN, MobileNetV2 and ResNet18. Preserve the historical
-   baseline and perform complete-graph feasibility checks early.
-3. Train and evaluate the new architectures under the common protocol; carry
-   promising models through conversion and physical KL720 evaluation.
-4. Complete NASA batch/model-profile integration and generate the common
-   model comparison report, then expand the compatible architecture queue.
+1. Retain the implemented common recipe and existing grouped roles; declare
+   numeric advancement/qualification requirements before reviewing new results
+   and inventory available unused NASA sources for independent confirmation.
+2. Add candidate-graph export and reusable whole-graph vendor screening before
+   the full training campaign. The current exporter requires a completed
+   trained fold, and the old conversion scripts pin the historical model.
+   Record supported, unsupported or unknown explicitly using fresh evidence.
+3. Train and evaluate the compact CNN, MobileNetV2 and ResNet18 on the same
+   three folds. Report three architectures and nine fold models separately.
+4. Carry a promising additional architecture through model-specific PTQ,
+   NEF compilation, physical execution and paired reference/deployment
+   assessment. A single-fold run remains a partial development milestone.
+5. Complete NASA batch/model-profile integration and measure full local
+   workflow cost, then expand the compatible architecture queue.
 
 DNAi, Perilipin2, general GUI expansion and new assays are secondary unless
 they directly unblock this NASA workflow or the owner reprioritizes them.
@@ -209,6 +220,14 @@ physical reference. Its seven historical gates passed, with a latent burden
 endpoint, source-limited validation and documented metadata-normalization
 recovery. See the [post-release audit](NASA_R1_V2_POSTRELEASE_AUDIT.md) for the
 current wording of the result.
+
+On 2026-11-17, the user's Windows console recorded a fresh 2,058-nucleus,
+22-bag replay with one NEF upload, numerical repeatability PASS and mean
+host-observed send/receive time of 3.930 ms. The
+[PR #31 evidence record](https://github.com/liuifrec/radiation-edge-ai/pull/31)
+identifies the source as a user-provided console transcript; the result is
+repeatability evidence for the frozen model, separate from its original
+biological validation.
 
 The first implementation now provides a fresh physical-baseline replay launcher,
 an architecture factory for R1CountNetV1/MobileNetV2/ResNet18, shared source-grouped
