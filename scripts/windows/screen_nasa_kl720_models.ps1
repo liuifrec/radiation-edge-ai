@@ -184,7 +184,10 @@ function Invoke-CandidateCampaign {
             return 0
         }
 
-        $Docker = Get-Command docker -CommandType Application -ErrorAction SilentlyContinue
+        # Application lookup can return multiple PATH matches. Invoke only the
+        # first resolved executable, exactly as ordinary command lookup would.
+        $Docker = Get-Command docker -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
         $DockerProblem = $null
         if ($null -eq $Docker) {
             $DockerProblem = 'Docker CLI was not found. Start the existing Docker Desktop installation and rerun with a fresh output directory.'

@@ -35,6 +35,10 @@ case = os.environ.get("RADEDGE_FAKE_CASE", "supported")
 with open(os.environ["RADEDGE_FAKE_CAPTURE"], "a", encoding="utf-8") as f:
     f.write(json.dumps({"mode": mode, "args": args, "pythonpath": os.environ.get("PYTHONPATH")}) + "\n")
 
+if mode == "shadow":
+    print("A lower-priority Docker executable must not run", file=sys.stderr)
+    sys.exit(91)
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -134,6 +138,14 @@ def launcher_fixture(tmp_path):
             f'@echo off\r\n"{sys.executable}" "{driver}" {mode} %*\r\nexit /b %errorlevel%\r\n',
             encoding="utf-8",
         )
+    # Guarantee duplicate Docker executable matches, even on a machine without
+    # Docker installed. Only the first PATH match is the permitted test driver.
+    shadow_binaries = tmp_path / "lower priority programs"
+    shadow_binaries.mkdir()
+    (shadow_binaries / "docker.cmd").write_text(
+        f'@echo off\r\n"{sys.executable}" "{driver}" shadow %*\r\nexit /b %errorlevel%\r\n',
+        encoding="utf-8",
+    )
     capture = tmp_path / "calls.jsonl"
     output = tmp_path / "candidate results"
     # CI starts pytest from PowerShell 7. Python otherwise passes its PS7
@@ -142,7 +154,7 @@ def launcher_fixture(tmp_path):
     # Let the native child construct its own default module paths, following:
     # https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_psmodulepath
     env = {key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"}
-    env["PATH"] = str(binaries) + os.pathsep + env["PATH"]
+    env["PATH"] = os.pathsep.join((str(binaries), str(shadow_binaries), env["PATH"]))
     env["RADEDGE_FAKE_CAPTURE"] = str(capture)
     env["PYTHONPATH"] = str(tmp_path / "existing python path")
     return {
@@ -184,6 +196,7 @@ def test_full_campaign_uses_pinned_read_only_inputs_and_fresh_containers(launche
     exporter = calls[0]
     assert exporter["mode"] == "export"
     assert exporter["pythonpath"].split(os.pathsep)[0] == str(f["checkout"] / "src")
+    assert not any(call["mode"] == "shadow" for call in calls)
     runs = [call["args"] for call in calls if call["mode"] == "docker" and call["args"][0] == "run"]
     assert len(runs) == 3
     for args in runs:
