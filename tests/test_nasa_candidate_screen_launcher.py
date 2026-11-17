@@ -136,7 +136,12 @@ def launcher_fixture(tmp_path):
         )
     capture = tmp_path / "calls.jsonl"
     output = tmp_path / "candidate results"
-    env = os.environ.copy()
+    # CI starts pytest from PowerShell 7. Python otherwise passes its PS7
+    # module paths to Windows PowerShell 5.1, breaking built-in module
+    # autoloading (for example Get-FileHash / Microsoft.PowerShell.Utility).
+    # Let the native child construct its own default module paths, following:
+    # https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_psmodulepath
+    env = {key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"}
     env["PATH"] = str(binaries) + os.pathsep + env["PATH"]
     env["RADEDGE_FAKE_CAPTURE"] = str(capture)
     env["PYTHONPATH"] = str(tmp_path / "existing python path")
