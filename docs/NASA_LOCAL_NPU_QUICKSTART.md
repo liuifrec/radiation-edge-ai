@@ -1,8 +1,9 @@
 # NASA: run the KL720, then expand the model collection
 
 The first command below runs the **existing frozen NASA R1 v2 model on the
-physical KL720**. The new model factory and training/export workflow then
-support a fair comparison of the compact CNN, MobileNetV2 and ResNet18.
+physical KL720**. Candidate-graph screening and the shared training/export
+workflow then support a fair comparison of the compact CNN, MobileNetV2
+and ResNet18.
 
 These are separate completion states: the frozen baseline has historical
 physical evidence; the additional architectures are candidates until their
@@ -146,7 +147,99 @@ The installed console command is `radedge-nasa`. Listing the three model
 contracts does not import PyTorch, ONNX, OpenCV or the vendor SDK. Preflight
 needs OpenCV to inspect the actual TIFFs.
 
-## 3. Train the first three architectures on identical source folds
+## 3. Screen the complete candidate graphs before full training
+
+From the repository root, using the separate scientific environment above:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\screen_nasa_kl720_models.ps1 `
+  -TrainingPython $TrainPython
+```
+
+This exports the complete compact CNN, MobileNetV2 and ResNet18, including
+their actual scalar regression heads, at the NASA input shape
+`[1,3,256,256]`. The deterministic, randomly initialized graphs use opset 11.
+Each graph must pass the ONNX checker and PyTorch-to-ONNX Runtime parity on
+synthetic zero, ramp and random inputs with a zero third channel. These
+checks do not read NASA images or labels and do not measure accuracy.
+
+An untrained network can emit the same scalar for every probe. The manifest
+records the output span and flags constant outputs as a weak numerical
+diagnostic; graph structure and head preservation are checked separately.
+The trained-model export later checks parity on the selected real calibration
+inputs.
+
+The launcher then runs one fresh Docker container per candidate. It uses
+the project's recorded Kneron Toolchain v0.33.1 image:
+
+```text
+kneron/toolchain@sha256:2207d99c9f78deef90647a3da3047ec3f7942ec689385a586fee476f77e89041
+```
+
+The image must already exist locally and Docker Desktop's Linux engine must
+be running. The launcher inspects the image and executes its immutable local
+image ID, with networking disabled, read-only repository/graph mounts and a
+separate writable results directory. It does not install packages, pull an
+image, change the PLUS environment, or connect to the USB dongle.
+`-ToolchainImage` can select a different existing image; its identity is
+recorded and its results belong to that toolchain configuration.
+
+The scientific interpreter defaults to `RADEDGE_NASA_PYTHON` when set,
+otherwise `D:\radiation-edge-ai-data\envs\nasa311\Scripts\python.exe`.
+`-Root` changes the default data root. Every launch uses a fresh output
+directory; an explicit `-OutputDir` must not already exist.
+
+For an export-only check without Docker:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\screen_nasa_kl720_models.ps1 `
+  -TrainingPython $TrainPython -ExportOnly
+```
+
+The same export stage is available directly on Linux or Windows:
+
+```text
+python -m radiation_edge_ai.nasa_bps.candidate_graphs --out <new-directory>
+```
+
+### Screening results
+
+| File | Meaning |
+| --- | --- |
+| `graphs/candidate_graphs.json` | Export completion, candidate graph identities and per-model manifest hashes |
+| `graphs/<architecture>/candidate.json` | Input/output contract, random seed, source/dependency identities, operators and numerical export checks |
+| `graphs/<architecture>/candidate.onnx` | Complete untrained model graph; never a trained deployment artifact |
+| `vendor/<architecture>/screen.json` | Model-specific Kneron assessment with original/optimized graph identities, toolchain information and evidence |
+| `screen_receipt.json` | Host summary, per-model statuses, process exits and artifact hashes |
+
+| Status | Interpretation and next action |
+| --- | --- |
+| `supported` | Fresh positive vendor evaluation with recognized CPU-partition evidence; eligible for the next development step under this configuration |
+| `unsupported` | Explicit vendor rejection or neural-network computation assigned to CPU; inspect the saved evidence and revise or retain as a labeled hybrid candidate |
+| `unknown` | Missing dependencies, failed invocation, missing/stale/unrecognized evidence or inconsistent identities; diagnose the saved error before advancing |
+
+Named shape operations are distinguished from neural computation using the
+actual optimized graph. An unrecognized CPU partition remains unresolved;
+the absence of an error is never sufficient to report support. Unchanged
+artifacts from earlier evaluations are excluded from positive evidence.
+The [official Kneron workflow](https://doc.kneron.com/docs/toolchain/manual_1_overview/)
+separates floating-point IP evaluation, quantization and final compilation.
+Its evaluator reports estimated NPU performance; these values are not
+physical-device timing.
+
+The launcher exits zero when all requested candidates are supported (or the
+requested export-only stage completes), 2 for a completed screen containing
+an unsupported candidate, and 3 when any result is unknown. Missing Docker
+or an unavailable image preserves the completed exports and records unknown
+vendor results. `EXPORTED_ONLY` means vendor screening was not requested.
+Always inspect the per-model result, not only the aggregate exit code.
+
+This screen does not train models, quantize to INT8, produce a deployable NEF,
+or establish biological accuracy. The exact trained graph must be checked
+again. Retain all attempted candidates and their reasons in the comparison;
+a failed or unknown candidate does not prevent investigation of the others.
+
+## 4. Train the first three architectures on identical source folds
 
 ```powershell
 $Run = 'D:\radiation-edge-ai-data\models\nasa_bps_53bp1\multimodel_v1'
@@ -203,7 +296,7 @@ predictions and metrics, with a flag identifying whether all three folds
 completed. The run-level `comparison.csv` brings the architecture metrics
 together in one table. No result is labeled accuracy qualified by this command.
 
-## 4. Export a trained fold and prepare conversion inputs
+## 5. Export a trained fold and prepare conversion inputs
 
 ```powershell
 & $TrainPython -m radiation_edge_ai.nasa_bps.multimodel export `
@@ -232,15 +325,17 @@ NEF and inherit the old model's accuracy result.
 
 ## Progress and next acceptance decision
 
-The implementation provides one real-hardware baseline replay and an extensible
-three-architecture training/export workflow. Software tests exercise the actual
-models and ONNX path on synthetic inputs. They establish implementation
-behavior, not accuracy on public NASA data or successful execution of the new
-architectures on a KL720.
+The implementation provides one real-hardware baseline replay, complete
+candidate-graph export and vendor-screen adapters, and an extensible
+three-architecture training/export workflow. Software tests exercise the
+actual models and ONNX path on synthetic inputs. Vendor parser/process tests
+use controlled fixtures and do not count as Kneron acceptance. These checks
+establish implementation behavior, not accuracy on public NASA data or
+successful execution of the new architectures on a KL720.
 
-Next, run the NASA development experiments under this declared recipe, screen
-the complete adapted graphs with the Kneron compiler, and record the declared
-accuracy/degradation requirements before candidate qualification. Qualifying
+Next, collect fresh Kneron screens on the toolchain host, record the declared
+accuracy/degradation requirements, and run the NASA development experiments
+under this common recipe. Qualifying
 additional architectures still requires both biological reference performance
 and paired FP32-to-physical results. Continue expanding the queue after these
 first candidates; three is not a project limit.

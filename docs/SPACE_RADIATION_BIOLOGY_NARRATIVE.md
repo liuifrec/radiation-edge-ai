@@ -79,6 +79,7 @@ with the interpretation limits in the [post-release audit](NASA_R1_V2_POSTRELEAS
 | Frozen NASA R1 v2 physical validation | One compact model passed its original seven biological criteria within the documented cohort | New architectures require their own evaluation |
 | Fresh KL720 replay on 2026-11-17 | User-reported completion of 2,058 nuclei, 22 bags and one model upload; historical numerical repeatability PASS | An independent file audit would require the receipt and result files |
 | Shared three-architecture implementation | Factory, grouped training, training-only BatchNorm recalibration, all-nucleus evaluation and ONNX parity export | Actual NASA development results for the new common recipe |
+| Early graph screening adapters | Complete untrained candidate export and fresh vendor evidence collection with explicit support status | Actual Kneron results from the toolchain host, followed by checks of the trained graphs |
 | Software validation at PR #31 | 250 local tests and four passing CI jobs, including Windows and CPU/ONNX checks | Software tests use synthetic inputs and do not establish new biological accuracy |
 | Baseline host-observed device timing | Fresh replay mean 3.930 ms, median 4.001 ms, p95 4.408 ms per nucleus for send/receive | Complete workflow latency, memory and measured energy |
 
@@ -119,27 +120,31 @@ milestone. It is labeled partial development evidence until the intended
 evaluation is complete. The frozen historical holdout remains a comparison
 panel; it does not become unused selection data again.
 
-### The immediate engineering gap
+### Early graph screening implementation
 
-The current [shared exporter](../src/radiation_edge_ai/nasa_bps/multimodel.py)
-requires a completed, BatchNorm-audited training run. It therefore cannot yet
-screen untrained candidate graphs before expensive training. The NASA vendor
-scripts also remain tied to the original R1 v2 artifact identities and its
-288-input calibration panel. New fold-specific exports default to 192 inputs
-from 48 training bags.
+The [candidate exporter](../src/radiation_edge_ai/nasa_bps/candidate_graphs.py)
+now exports all three complete randomly initialized models using the NASA
+input shape and scalar head. Synthetic PyTorch/ONNX Runtime parity checks
+verify export behavior. The [vendor adapter](../src/radiation_edge_ai/nasa_bps/kneron_candidate_screen.py)
+collects a fresh whole-graph assessment, records graph/toolchain identities
+and distinguishes positive support, explicit rejection and unknown evidence.
+CPU neural computation and recognized shape bookkeeping have separate records.
+The [Windows launcher and result guide](NASA_LOCAL_NPU_QUICKSTART.md#3-screen-the-complete-candidate-graphs-before-full-training)
+make this the next executable host step.
 
-The next adapter should export the complete candidate graph using the real
-NASA input and scalar head, then collect a fresh whole-graph vendor assessment.
-It should record graph hashes, toolchain identity, operator/partition evidence
-and explicit support status. Any CPU neural-network computation must be visible.
-The eventual trained graph is rechecked before conversion and physical execution.
+The existing [trained-fold exporter](../src/radiation_edge_ai/nasa_bps/multimodel.py)
+still requires a completed, BatchNorm-audited training run. New fold-specific
+exports default to 192 calibration inputs from 48 training bags. The historical
+NASA vendor scripts remain tied to the original R1 v2 identities and its
+288-input panel. Reusable trained-model PTQ, compilation and physical profiles
+are subsequent work, and the eventual trained graph is screened again.
 
-Preserve the historical scripts. In particular, do not generalize the old
-IP-screen heuristic that infers support from the absence of failure strings
-or can select an older log when no fresh artifact exists. A reusable screen
-must distinguish a positive vendor result from missing or ambiguous evidence.
-See the existing [historical optimizer/evaluator](../src/radiation_edge_ai/nasa_bps/kneron_optimize_evaluate_r1_v2.py)
-for the behavior that the new adapter must handle explicitly.
+The new screen requires positive, fresh evidence. It does not inherit the
+[historical optimizer/evaluator](../src/radiation_edge_ai/nasa_bps/kneron_optimize_evaluate_r1_v2.py)
+heuristic that inferred support from the absence of failure strings or could
+select an older log when no fresh artifact existed. Unknown evidence never
+advances a model. Software tests of this behavior are separate from actual
+Kneron acceptance and physical execution.
 
 This step directly supports architecture breadth. It does not require a new
 assay, a GUI, a different accelerator, or spacecraft integration work.

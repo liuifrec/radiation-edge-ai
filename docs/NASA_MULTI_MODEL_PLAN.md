@@ -196,10 +196,11 @@ metadata; keep existing dataset/model-binary storage rules and upstream terms.
 1. Retain the implemented common recipe and existing grouped roles; declare
    numeric advancement/qualification requirements before reviewing new results
    and inventory available unused NASA sources for independent confirmation.
-2. Add candidate-graph export and reusable whole-graph vendor screening before
-   the full training campaign. The current exporter requires a completed
-   trained fold, and the old conversion scripts pin the historical model.
-   Record supported, unsupported or unknown explicitly using fresh evidence.
+2. Run the implemented candidate-graph export and whole-graph vendor screen
+   before the full training campaign. The early screen uses untrained complete
+   graphs and synthetic export checks, independently of the trained-fold
+   exporter. Record supported, unsupported or unknown using fresh evidence
+   from the installed toolchain; parser tests do not establish vendor support.
 3. Train and evaluate the compact CNN, MobileNetV2 and ResNet18 on the same
    three folds. Report three architectures and nine fold models separately.
 4. Carry a promising additional architecture through model-specific PTQ,
@@ -231,8 +232,10 @@ biological validation.
 
 The first implementation now provides a fresh physical-baseline replay launcher,
 an architecture factory for R1CountNetV1/MobileNetV2/ResNet18, shared source-grouped
-training, and fixed-shape ONNX export with training-source-only calibration
-inputs and parity checks. The common new recipe uses deterministic 16-nucleus
+training, fixed-shape ONNX export with training-source-only calibration
+inputs and parity checks, and early full-graph screening adapters. The latter
+use deterministic untrained weights and synthetic inputs, with fresh vendor
+evidence required for a supported result. The common new recipe uses deterministic 16-nucleus
 training minibags, all-nucleus evaluation and a fixed fold-training-only
 BatchNorm recalibration before deployment-state evaluation. It is not a
 reproduction of the original training recipe.

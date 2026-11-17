@@ -72,9 +72,20 @@ graphs before the full training campaign. Then compare R1CountNetV1,
 MobileNetV2 and ResNet18 on the same grouped folds, carrying promising models
 through conversion and physical reference-accuracy assessment.
 
-The factory, grouped trainer and trained-model ONNX exporter are implemented.
-The next engineering gap is early candidate-graph export and reusable vendor
-screening; current NASA conversion scripts remain tied to the frozen baseline.
+The factory, grouped trainer, trained-model ONNX exporter and early
+candidate-graph screening adapters are implemented. The next host run exports
+all three complete graphs and obtains fresh Kneron feasibility evidence:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\screen_nasa_kl720_models.ps1
+```
+
+This uses a separate scientific Python environment and the existing pinned
+Kneron Docker image. See the [screening quickstart](docs/NASA_LOCAL_NPU_QUICKSTART.md#3-screen-the-complete-candidate-graphs-before-full-training)
+for setup and supported/unsupported/unknown outcomes. Synthetic ONNX parity
+has a different meaning from vendor acceptance, NASA accuracy or physical
+execution. New trained-model quantization and compilation remain to implement;
+the historical conversion scripts retain their frozen baseline identities.
 See the [concrete milestone sequence](docs/SPACE_RADIATION_BIOLOGY_NARRATIVE.md#next-milestone-the-first-additional-accurate-physical-model).
 
 ### Current evidence checkpoint — 2026-11-17
@@ -84,6 +95,7 @@ See the [concrete milestone sequence](docs/SPACE_RADIATION_BIOLOGY_NARRATIVE.md#
 | Established NASA physical model | One frozen compact CNN with its recorded original biological validation |
 | Fresh physical replay | User console reports 2,058 nuclei, 22 bags, one upload and numerical repeatability PASS; mean host-observed send/receive 3.930 ms |
 | Architecture implementations | Compact CNN, MobileNetV2 and ResNet18 share training/export; new NASA results and physical qualification remain pending |
+| Early architecture screen | Complete untrained ONNX export and fresh per-candidate Kneron adapters; actual vendor outcomes require the toolchain host |
 | Software verification | 250 local tests and four passing CI jobs for PR #31; numerical software tests use synthetic images |
 
 The [PR #31 record](https://github.com/liuifrec/radiation-edge-ai/pull/31)
