@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import copy
+import gc
 import hashlib
 import json
 import subprocess
 import sys
+import weakref
 from dataclasses import replace
+from functools import wraps
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -259,8 +262,8 @@ def math_is_finite(values):
     return all(math.isfinite(value) for value in values)
 
 
-def test_train_orchestration_synthetic_fold_saves_repaired_checkpoint_and_comparison(tmp_path, monkeypatch):
-    """Stub only frozen-data loading, while executing the actual training pipeline."""
+def test_train_orchestration_releases_fold_state_and_saves_repaired_checkpoints(tmp_path, monkeypatch):
+    """Run two real synthetic folds and observe resource lifetimes between stages."""
     torch = pytest.importorskip("torch")
     cv2 = pytest.importorskip("cv2")
     np = pytest.importorskip("numpy")
@@ -315,9 +318,64 @@ def test_train_orchestration_synthetic_fold_saves_repaired_checkpoint_and_compar
     args = SimpleNamespace(out=output, device="cpu", manifest=manifest, reference=reference,
                            reference_freeze=tmp_path / "not_a_real_NASA_freeze.json",
                            image_root=image_root, inventory=None,
-                           models=["r1countnet_v1"], folds=[fold], seed=720, epochs=1,
+                           models=["r1countnet_v1"], folds=list(mm.FOLD_FIELDS[:2]), seed=720, epochs=1,
                            train_nuclei_per_bag=2, eval_chunk_size=2, calibration_nuclei_per_bag=1)
-    assert mm.train(args)["status"] == "complete"
+    models, optimizers, schedulers, loaded_tensors = [], [], [], []
+    checked_stages = {"train": 0, "batchnorm": 0, "evaluate": 0}
+    create_model, train_epoch = mm.create_model, mm.train_one_epoch
+    recalibrate, evaluate = mm.recalibrate_batchnorm, mm.evaluate_bags_chunked
+    make_scheduler, load_checkpoint = torch.optim.lr_scheduler.CosineAnnealingLR, torch.load
+
+    def track_model(*args, **kwargs):
+        model = create_model(*args, **kwargs)
+        models.append(weakref.ref(model))
+        return model
+
+    def track_scheduler(*args, **kwargs):
+        scheduler = make_scheduler(*args, **kwargs)
+        schedulers.append(weakref.ref(scheduler))
+        return scheduler
+
+    @wraps(load_checkpoint)
+    def track_checkpoint(*args, **kwargs):
+        state = load_checkpoint(*args, **kwargs)
+        loaded_tensors.extend(weakref.ref(tensor) for tensor in state["state_dict"].values())
+        return state
+
+    def only_current_model_remains(model):
+        gc.collect()
+        assert all(reference() is None or reference() is model for reference in models)
+
+    def check_train(v1, v2, model, pairs, cache, optimizer, device, **kwargs):
+        only_current_model_remains(model)
+        optimizers.append(weakref.ref(optimizer))
+        checked_stages["train"] += 1
+        return train_epoch(v1, v2, model, pairs, cache, optimizer, device, **kwargs)
+
+    def check_batchnorm(*args, **kwargs):
+        gc.collect()
+        assert all(reference() is None for reference in optimizers)
+        assert all(reference() is None for reference in schedulers)
+        checked_stages["batchnorm"] += 1
+        return recalibrate(*args, **kwargs)
+
+    def check_evaluation(v1, model, *args, **kwargs):
+        only_current_model_remains(model)
+        assert loaded_tensors and all(reference() is None for reference in loaded_tensors)
+        checked_stages["evaluate"] += 1
+        return evaluate(v1, model, *args, **kwargs)
+
+    with monkeypatch.context() as tracking:
+        tracking.setattr(mm, "create_model", track_model)
+        tracking.setattr(mm, "train_one_epoch", check_train)
+        tracking.setattr(mm, "recalibrate_batchnorm", check_batchnorm)
+        tracking.setattr(mm, "evaluate_bags_chunked", check_evaluation)
+        tracking.setattr(torch.optim.lr_scheduler, "CosineAnnealingLR", track_scheduler)
+        tracking.setattr(torch, "load", track_checkpoint)
+        assert mm.train(args)["status"] == "complete"
+    gc.collect()
+    assert all(reference() is None for reference in models)
+    assert checked_stages == {"train": 2, "batchnorm": 2, "evaluate": 2}
     run_dir = output / "r1countnet_v1" / fold
     run = json.loads((run_dir / "run.json").read_text())
     assert run["status"] == "complete"
@@ -335,6 +393,7 @@ def test_train_orchestration_synthetic_fold_saves_repaired_checkpoint_and_compar
             assert torch.equal(tensor, repaired["state_dict"][name])
     comparison = mm._read_csv(output / "comparison.csv")
     assert len(comparison) == 1
+    assert comparison[0]["n_folds"] == "2"
     assert comparison[0]["all_frozen_folds_complete"] == "False"
     assert comparison[0]["qualification"] == "development_candidate_only"
     assert set(run["metrics"]["per_source"]) == {"source0", "source1"}

@@ -51,8 +51,9 @@ The current input/endpoint definitions are documented in the
 | Candidate | Purpose | Evidence at this planning checkpoint |
 | --- | --- | --- |
 | Frozen NASA R1 v2 / `R1CountNetV1` | Known working compact CNN and deployment anchor | Physical NASA validation recorded; retain original weights and interpretation |
-| MobileNetV2 with scalar regression head | First depthwise-separable backbone comparison | NASA-adapted factory and shared training/export implemented; NASA accuracy, Kneron conversion and physical execution pending |
-| ResNet18 with scalar regression head | First residual backbone comparison | NASA-adapted factory and shared training/export implemented; NASA accuracy, Kneron conversion and physical execution pending |
+| `R1CountNetV1` retraining candidate | Fold-matched compact CNN comparator | Full untrained 256 x 256 graph reported supported by the real KL720 toolchain; new grouped training pending |
+| MobileNetV2 with scalar regression head | First depthwise-separable backbone comparison | Full untrained 256 x 256 graph reported supported; NASA accuracy, trained-weight conversion and physical execution pending |
+| ResNet18 with scalar regression head | First residual backbone comparison | Full untrained 256 x 256 graph reported supported; NASA accuracy, trained-weight conversion and physical execution pending |
 | ResNet50 with scalar regression head | Higher-capacity residual comparison | Vendor model listed; exact geometry, resources and NASA graph still require checking |
 | Further compatible families / capacity variants | Grow breadth and explore accuracy/cost tradeoffs | Admit through full-graph feasibility and the shared benchmark |
 
@@ -196,11 +197,13 @@ metadata; keep existing dataset/model-binary storage rules and upstream terms.
 1. Retain the implemented common recipe and existing grouped roles; declare
    numeric advancement/qualification requirements before reviewing new results
    and inventory available unused NASA sources for independent confirmation.
-2. Run the implemented candidate-graph export and whole-graph vendor screen
-   before the full training campaign. The early screen uses untrained complete
-   graphs and synthetic export checks, independently of the trained-fold
-   exporter. Record supported, unsupported or unknown using fresh evidence
-   from the installed toolchain; parser tests do not establish vendor support.
+   The [first campaign declaration](NASA_THREE_MODEL_CAMPAIGN_V1.md) retains the
+   eight existing development advancement criteria for the same six-source
+   cohort; independent qualification and deployment-degradation criteria
+   remain separate work.
+2. Preserve the successful full-graph screen reported on 2026-11-17 and run
+   the bounded real-data training/export check in the quickstart. Inspect
+   actual GPU availability and resources before the full training campaign.
 3. Train and evaluate the compact CNN, MobileNetV2 and ResNet18 on the same
    three folds. Report three architectures and nine fold models separately.
 4. Carry a promising additional architecture through model-specific PTQ,
@@ -240,8 +243,16 @@ training minibags, all-nucleus evaluation and a fixed fold-training-only
 BatchNorm recalibration before deployment-state evaluation. It is not a
 reproduction of the original training recipe.
 
+On 2026-11-17, the user's Windows console recorded `COMPLETE_SUPPORTED` for all
+three complete 256 x 256 candidate graphs using the pinned Kneron image. Each
+reported fresh target-720 IP evaluation with no CPU neural computation. The
+[campaign evidence record](NASA_THREE_MODEL_CAMPAIGN_V1.md#entry-evidence)
+preserves the graph hashes and local receipt path, and identifies this as
+user-supplied console evidence rather than an independent artifact review.
+
 See the [NASA local NPU quickstart](NASA_LOCAL_NPU_QUICKSTART.md) for runnable
 commands and exact result states. Numerical software checks use synthetic
 images. No new NASA accuracy result or new architecture's physical KL720
-execution is claimed. Full-graph vendor conversion, qualification criteria,
-new model results and unified high-level NASA model selection remain open.
+execution is claimed. Trained-weight PTQ/NEF conversion, independent
+qualification criteria, new model results and unified high-level NASA model
+selection remain open.
