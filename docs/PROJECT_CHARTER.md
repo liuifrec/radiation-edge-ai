@@ -10,6 +10,20 @@ This owner-directed priority replaces the original three-assay development
 order. The [NASA multi-model plan](NASA_MULTI_MODEL_PLAN.md) is the current
 operational plan. Historical validation records retain their original scope.
 
+## Space-biology rationale
+
+The project develops local analysis methods for a biological problem relevant
+to space radiation research. Its current deliverable is a ground-based model
+benchmark and physical inference workflow using public NASA data. Analysis
+near data acquisition provides the longer-term space-research motivation.
+The [space-biology narrative](SPACE_RADIATION_BIOLOGY_NARRATIVE.md) records the
+NASA sources, measured evidence and distinction between this demonstrator and
+future mission integration.
+
+This framing keeps NASA model breadth, reference accuracy and real local
+execution as the immediate priorities. Flight qualification and new instrument
+integration are future extensions, not additional near-term project tracks.
+
 ## Objectives
 
 1. **Model breadth:** qualify multiple distinct architecture families and
@@ -102,11 +116,13 @@ decision so other models can continue through the common pipeline.
 
 ## Near-term deliverable
 
-A common NASA benchmark that includes the frozen reference and the first
-MobileNetV2/ResNet18 candidates, with explicit per-model states and comparable
-accuracy reports. Qualify each model through FP32 evaluation, conversion,
-physical execution and the declared accuracy criteria. Expand the collection
-once this path is reusable.
+The first additional architecture with measured NASA reference performance
+and real KL720 execution, supported by the common compact-CNN/MobileNetV2/ResNet18
+comparison. The factory and shared training/export path are implemented.
+Next, declare advancement criteria and screen complete adapted graphs before
+the full training campaign. Qualify models through FP32 evaluation, conversion,
+physical execution and the declared accuracy criteria; retain failures in the
+comparison. Expand the collection once this path is reusable.
 
 ## Publication direction
 

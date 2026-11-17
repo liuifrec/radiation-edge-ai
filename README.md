@@ -1,6 +1,17 @@
 # Radiation Edge AI
 
-**NASA public-data models for accurate, local NPU inference.**
+**Edge AI for space radiation biology, built on public NASA microscopy.**
+
+We develop and compare accurate models that execute locally on physical NPUs.
+The initial biological task uses NASA's
+[ground-based radiation study](https://osdr.nasa.gov/bio/repo/data/studies/OSD-366)
+and [public BPS microscopy benchmark](https://registry.opendata.aws/bps_microscopy/).
+The space-research motivation is analysis near data acquisition: NASA/JPL's
+[science-autonomy work](https://www.jpl.nasa.gov/go/owls/onboard-science-autonomy/)
+illustrates why useful biological information must be retained when remote
+communication is constrained. Our present system is a ground research
+demonstrator. The [space-biology narrative and evidence plan](docs/SPACE_RADIATION_BIOLOGY_NARRATIVE.md)
+connects that motivation to the measured results and next milestones.
 
 ## Current priority — 2026-11-17
 
@@ -55,15 +66,41 @@ paths, preflight options, result interpretation and the new training/export comm
 
 ### Next milestone
 
-Retain the frozen deployment reference and establish one reusable comparison
-workflow for R1CountNetV1, MobileNetV2 and ResNet18 trained on the same grouped
-folds: FP32 evaluation, ONNX parity,
-quantization, compilation, physical inference and a common accuracy/latency
-report. The architecture factory, grouped training adapter and ONNX parity
-export are implemented for the first three models. NASA training results,
-full-graph conversion and physical qualification of the new backbones are the
-next evidence needed. NASA KL720 batch integration supports this milestone;
-general GUI expansion and unrelated compiler investigations are secondary.
+**Qualify the first additional NASA model architecture on the physical KL720.**
+Declare the new advancement criteria and screen the three complete adapted
+graphs before the full training campaign. Then compare R1CountNetV1,
+MobileNetV2 and ResNet18 on the same grouped folds, carrying promising models
+through conversion and physical reference-accuracy assessment.
+
+The factory, grouped trainer, trained-model ONNX exporter and early
+candidate-graph screening adapters are implemented. The next host run exports
+all three complete graphs and obtains fresh Kneron feasibility evidence:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\screen_nasa_kl720_models.ps1
+```
+
+This uses a separate scientific Python environment and the existing pinned
+Kneron Docker image. See the [screening quickstart](docs/NASA_LOCAL_NPU_QUICKSTART.md#3-screen-the-complete-candidate-graphs-before-full-training)
+for setup and supported/unsupported/unknown outcomes. Synthetic ONNX parity
+has a different meaning from vendor acceptance, NASA accuracy or physical
+execution. New trained-model quantization and compilation remain to implement;
+the historical conversion scripts retain their frozen baseline identities.
+See the [concrete milestone sequence](docs/SPACE_RADIATION_BIOLOGY_NARRATIVE.md#next-milestone-the-first-additional-accurate-physical-model).
+
+### Current evidence checkpoint — 2026-11-17
+
+| Component | Evidence |
+| --- | --- |
+| Established NASA physical model | One frozen compact CNN with its recorded original biological validation |
+| Fresh physical replay | User console reports 2,058 nuclei, 22 bags, one upload and numerical repeatability PASS; mean host-observed send/receive 3.930 ms |
+| Architecture implementations | Compact CNN, MobileNetV2 and ResNet18 share training/export; new NASA results and physical qualification remain pending |
+| Early architecture screen | Complete untrained ONNX export and fresh per-candidate Kneron adapters; actual vendor outcomes require the toolchain host |
+| Software verification | 250 local tests and four passing CI jobs for PR #31; numerical software tests use synthetic images |
+
+The [PR #31 record](https://github.com/liuifrec/radiation-edge-ai/pull/31)
+identifies the replay evidence as the user's console transcript. This fresh
+run is distinct from the historical validation and its original timing.
 
 ## Accuracy and scientific interpretation
 
@@ -159,8 +196,9 @@ Full provenance, hashes, protocol-deviation documentation, claim boundaries, and
 
 ## Publication strategy
 
-The current manuscript direction is a **NASA public-data benchmark and model
-collection for accurate local NPU inference**. Compare multiple architectures
+The current manuscript direction is **edge AI for space radiation biology:
+a NASA public-data benchmark and model collection for accurate local NPU inference**.
+Compare multiple architectures
 on the same task, then report reference accuracy, deployment degradation,
 physical compatibility and complete local workflow performance.
 

@@ -1,21 +1,37 @@
 # Manuscript Outline
 
-**Scope updated 2026-11-17:** NASA public-data benchmarking of multiple accurate
-models for local NPU inference. This outline follows the
+**Scope updated 2026-11-17:** edge AI for space radiation biology through NASA
+public-data benchmarking of multiple accurate models for local NPU inference.
+This outline follows the
 [current project plan](../docs/NASA_MULTI_MODEL_PLAN.md). It describes planned
 analyses, not completed multi-model results. Venue selection follows the final
 evidence package.
 
 ## Working title
 
-**Benchmarking accurate local NPU inference across neural-network architectures
-for NASA radiation microscopy**
+**Edge AI for space radiation biology: benchmarking local NPU inference on
+public NASA microscopy**
 
 ## Central research question
 
-Which model architectures can execute locally on an edge NPU while achieving
-high accuracy on public NASA microscopy data, and how do architecture and
-quantization affect biological measurements and complete workflow performance?
+Which locally deployable architectures accurately recover NASA sample-level
+radiation-response measurements, and what additional error and execution cost
+does physical NPU deployment introduce?
+
+## Space-biology motivation
+
+Start with the biological question and the value of analysis near data
+acquisition. The selected NASA data come from a ground radiation experiment.
+Use NASA's [OSD-366 record](https://osdr.nasa.gov/bio/repo/data/studies/OSD-366)
+for that provenance and its
+[BPS benchmark entry](https://registry.opendata.aws/bps_microscopy/) for the
+public image subset. Use JPL's
+[onboard science-autonomy example](https://www.jpl.nasa.gov/go/owls/onboard-science-autonomy/)
+to motivate preservation of useful science under communications constraints.
+
+The current study is a ground-based computational and hardware benchmark.
+The [project narrative and evidence plan](../docs/SPACE_RADIATION_BIOLOGY_NARRATIVE.md)
+separates established results from future instrument or mission integration.
 
 ## Intended contribution
 
@@ -31,16 +47,17 @@ successful three-assay comparison is not a prerequisite for this manuscript.
 
 ## Abstract structure
 
-1. Problem: accurate microscopy inference should be available on local PCs
-   with limited compute and no cloud dependency.
+1. Problem: biological experiments relevant to space research motivate accurate
+   image analysis near data acquisition, where remote computation and timely
+   data transfer may be constrained.
 2. Objective: compare multiple architectures on a public NASA task and measure
    their actual NPU execution and accuracy.
 3. Methods: grouped evaluation, shared training/scoring, FP32 and converted
    models, physical KL720 predictions and complete local timing.
 4. Results: report only completed model counts, accuracy, deployment gaps and
    performance; include blocked and unsuccessful candidates.
-5. Impact: a reproducible basis for selecting local NPU models for NASA
-   microscopy and extending the collection.
+5. Impact: a reproducible ground benchmark for selecting local NPU models for
+   space-radiation-biology measurements and extending the collection.
 
 ## Results plan
 
@@ -51,6 +68,7 @@ successful three-assay comparison is not a prerequisite for this manuscript.
 - Native-scale 256 x 256 FITC/DAPI input and sample-bag aggregation.
 - Grouped development roles and availability of independent confirmation data.
 - Explicit separation from the previously examined historical final holdout.
+- Ground-study origin and the selected subset's biological scope.
 
 ### 2. Accuracy across multiple FP32 architectures
 
@@ -67,6 +85,8 @@ successful three-assay comparison is not a prerequisite for this manuscript.
 - Physical execution of the exact trained models on KL720.
 - Model-by-model compatibility and failure records.
 - Explicit CPU preprocessing/postprocessing and any hybrid network computation.
+- Historical compact-CNN validation and the 2026-11-17 fresh replay shown as
+  separate baseline evidence; neither supplies new-architecture results.
 
 ### 4. Accuracy retained after deployment
 
@@ -93,6 +113,10 @@ successful three-assay comparison is not a prerequisite for this manuscript.
 - Limits: aggregate supervision, biological-source coverage, available labels,
   historical-panel exposure and hardware/toolchain specificity.
 - Additional NASA tasks/datasets and other NPU targets as future extensions.
+- What the ground benchmark contributes toward future local space-biology
+  analysis, and what still requires instrument-specific or environmental work.
+- Optional later experiment: preserved biological information under a declared
+  simulated communications budget; do not claim downlink savings before measurement.
 
 ## Methods and reporting requirements
 
@@ -112,6 +136,14 @@ governs interpretation: latent per-nucleus burden, sample-level comparison,
 preserved reference-agreement pattern, limited source coverage, and the
 documented metadata-normalization recovery. This is not a direct focus-count
 accuracy result or automatic validation of additional models.
+
+The user-provided console for the 2026-11-17 replay reports 2,058 nuclei,
+22 bags, one model upload and numerical repeatability PASS at the fixed
+`1e-4` limit. Mean host-observed send/receive time was 3.930 ms. Record this
+as repeatability evidence, preserve the original validation's separate timing,
+and identify the [PR #31 record](https://github.com/liuifrec/radiation-edge-ai/pull/31)
+as the present source. Receipt/result files have not been independently
+audited in this session. The current physical-model count remains one.
 
 ## Data and code availability
 
