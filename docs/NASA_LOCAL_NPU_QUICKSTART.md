@@ -202,8 +202,9 @@ diagnostic; graph structure and head preservation are checked separately.
 The trained-model export later checks parity on the selected real calibration
 inputs.
 
-The launcher then runs one fresh Docker container per candidate. It uses
-the project's recorded Kneron Toolchain v0.33.1 image:
+The launcher first checks the SDK runtime in one isolated Docker container,
+then runs one fresh container per candidate. It uses the project's recorded
+Kneron Toolchain v0.33.1 image:
 
 ```text
 kneron/toolchain@sha256:2207d99c9f78deef90647a3da3047ec3f7942ec689385a586fee476f77e89041
@@ -216,6 +217,35 @@ separate writable results directory. It does not install packages, pull an
 image, change the PLUS environment, or connect to the USB dongle.
 `-ToolchainImage` can select a different existing image; its identity is
 recorded and its results belong to that toolchain configuration.
+
+The container interpreter defaults to **`/workspace/miniconda/bin/python`**,
+the absolute path recorded in the project's earlier successful runs with this
+same image. Kneron's [deployment documentation](https://doc.kneron.com/docs/toolchain/manual_2_deploy/)
+also identifies `/workspace/miniconda` as its environment. A bare `python`
+entrypoint can be absent from the image's noninteractive PATH; the container's
+system `python3` can exist without the SDK dependencies.
+
+The runtime preflight checks Python 3.7 or later, imports ONNX and KTC, and
+requires `ModelConfig.evaluate` plus either `kneronnxopt.optimize` or the
+historical `ktc.onnx_optimizer.onnx2onnx_flow` API. It records the interpreter,
+package paths/versions, optimizer, immutable image identity and process exit
+code. `PASS` here establishes runtime readiness only. Model compatibility
+requires the separate graph evaluations that follow. If preflight fails, the
+launcher saves `runtime.log`, reports the shared cause once, and leaves all
+three model evaluations unstarted. It preserves a JSON probe receipt whenever
+the interpreter could run. Runtime evidence hashes are checked again at the
+end of screening.
+
+`-ContainerPython` selects an explicit interpreter for a different existing
+image configuration. It must pass the same preflight; no fallback or package
+installation is performed. To recover from an earlier launcher's
+`exec: "python": executable file not found` error, the existing parameter can
+also select the validated interpreter directly:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\screen_nasa_kl720_models.ps1 `
+  -TrainingPython $TrainPython -ContainerPython '/workspace/miniconda/bin/python'
+```
 
 The scientific interpreter defaults to `RADEDGE_NASA_PYTHON` when set.
 Otherwise it selects an existing `envs\nasa311\Scripts\python.exe` or
@@ -244,6 +274,8 @@ python -m radiation_edge_ai.nasa_bps.candidate_graphs --out <new-directory>
 | `graphs/candidate_graphs.json` | Export completion, candidate graph identities and per-model manifest hashes |
 | `graphs/<architecture>/candidate.json` | Input/output contract, random seed, source/dependency identities, operators and numerical export checks |
 | `graphs/<architecture>/candidate.onnx` | Complete untrained model graph; never a trained deployment artifact |
+| `runtime/runtime_probe.json` | SDK import/API readiness and observed container interpreter; created if the probe can run |
+| `runtime.log` | Runtime preflight output, including container startup failures |
 | `vendor/<architecture>/screen.json` | Model-specific Kneron assessment with original/optimized graph identities, toolchain information and evidence |
 | `screen_receipt.json` | Host summary, per-model statuses, process exits and artifact hashes |
 
@@ -268,6 +300,8 @@ an unsupported candidate, and 3 when any result is unknown. Missing Docker
 or an unavailable image preserves the completed exports and records unknown
 vendor results. `EXPORTED_ONLY` means vendor screening was not requested.
 Always inspect the per-model result, not only the aggregate exit code.
+`runtime_preflight_status: FAILED` with `vendor_invoked: false` identifies a
+shared runtime failure before any model was assessed.
 
 This screen does not train models, quantize to INT8, produce a deployable NEF,
 or establish biological accuracy. The exact trained graph must be checked

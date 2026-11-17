@@ -106,6 +106,7 @@ jobs:
           tests/test_nasa_multimodel.py
           tests/test_nasa_candidate_graphs.py
           tests/test_kneron_candidate_screen.py
+          tests/test_kneron_runtime_probe.py
 
   windows-launcher:
     name: Windows NASA launcher contracts
