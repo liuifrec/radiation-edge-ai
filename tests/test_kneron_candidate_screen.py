@@ -24,6 +24,15 @@ def artifact(tmp_path, name, content):
     return {"name": name, "path": str(path)}
 
 
+def fresh_evaluation_artifact(name, content):
+    evidence = artifact(Path.cwd(), name, content)
+    # Immediate fake SDK writes can receive a filesystem timestamp just before
+    # the evaluation clock. Set the fixture's intended freshness explicitly.
+    fresh_ns = time.time_ns() + 1_000_000
+    os.utime(evidence["path"], ns=(fresh_ns, fresh_ns))
+    return evidence
+
+
 def report(cpu="N/A", fps="123.4"):
     return {"kdp720/ip_eval/fps": fps, "kdp720/ip_eval/cpu_node": cpu}
 
@@ -311,7 +320,7 @@ def test_complete_fake_sdk_flow_binds_fresh_result(tmp_path, monkeypatch):
     args, _, _ = inputs(tmp_path)
 
     def evaluate():
-        Path("model_fx_report.json").write_text(json.dumps(report()), encoding="utf-8")
+        fresh_evaluation_artifact("model_fx_report.json", report())
         print("fresh test-fixture evaluation")
         subprocess.run([sys.executable, "-c", "import os; os.write(2, b'native child log\\n')"], check=True)
         return None
@@ -335,7 +344,7 @@ def test_pre_evaluation_positive_log_cannot_supply_fresh_support(tmp_path, monke
         print("[Evaluation Result]\nestimate FPS float = 99.3")
 
     def evaluate():
-        Path("ioinfo.csv").write_text("i,0,input,3,256,256\no,0,score,1,1,1\n", encoding="utf-8")
+        fresh_evaluation_artifact("ioinfo.csv", "i,0,input,3,256,256\no,0,score,1,1,1\n")
         return None
 
     fake_runtime(monkeypatch, evaluate, optimize)
@@ -344,6 +353,7 @@ def test_pre_evaluation_positive_log_cannot_supply_fresh_support(tmp_path, monke
     assert receipt["support_status"] == "unknown"
     assert "estimate FPS" in (Path(args.out) / "vendor.log").read_text(encoding="utf-8")
     assert "estimate FPS" not in (Path(args.out) / "evaluation.log").read_text(encoding="utf-8")
+    assert any(item["name"] == "ioinfo.csv" for item in receipt["artifacts"])
     assert receipt["positive_evidence"] == []
 
 
@@ -367,7 +377,7 @@ def test_vendor_source_mutation_invalidates_otherwise_positive_result(tmp_path, 
     args, source, _ = inputs(tmp_path)
 
     def evaluate():
-        Path("model_fx_report.json").write_text(json.dumps(report()), encoding="utf-8")
+        fresh_evaluation_artifact("model_fx_report.json", report())
         source.write_bytes(b"modified during vendor run")
 
     fake_runtime(monkeypatch, evaluate)

@@ -423,6 +423,60 @@ def _load_runtime():
     return onnx, ktc, optimizer
 
 
+def probe_runtime(args):
+    """Check SDK imports and API presence without evaluating any model."""
+    output = Path(args.out).absolute()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # Reserve a new receipt before importing vendor code. Existing evidence is
+    # never overwritten, including when an SDK import subsequently fails.
+    with output.open("x", encoding="utf-8") as handle:
+        report = {
+            "schema_version": 1, "purpose": "toolchain_runtime_preflight",
+            "created_utc": datetime.now(timezone.utc).isoformat(),
+            "status": "FAILED", "toolchain_image_id": args.toolchain_image_id,
+            "python_version": platform.python_version(), "python_executable": sys.executable,
+            "dependency_versions": {name: None for name in ("onnx", "ktc", "kneronnxopt")},
+            "dependency_paths": {name: None for name in ("onnx", "ktc", "kneronnxopt")},
+            "optimizer_backend": None, "error": None,
+            "model_evaluation_performed": False,
+        }
+        try:
+            if sys.version_info < (3, 7):
+                raise RuntimeError("Kneron screening requires Python 3.7 or later")
+            onnx, ktc, optimizer = _load_runtime()
+            modules = {"onnx": onnx, "ktc": ktc, "kneronnxopt": optimizer}
+            for name, module in modules.items():
+                report["dependency_versions"][name] = getattr(module, "__version__", None)
+                report["dependency_paths"][name] = getattr(module, "__file__", None)
+            config = getattr(ktc, "ModelConfig", None)
+            if not callable(config) or not callable(getattr(config, "evaluate", None)):
+                raise RuntimeError("Kneron SDK must provide ModelConfig.evaluate")
+            if optimizer is not None:
+                if not callable(getattr(optimizer, "optimize", None)):
+                    raise RuntimeError("Installed kneronnxopt has no callable optimize API")
+                report["optimizer_backend"] = "kneronnxopt.optimize"
+            else:
+                flow = getattr(getattr(ktc, "onnx_optimizer", None), "onnx2onnx_flow", None)
+                if not callable(flow):
+                    raise RuntimeError("Installed SDK has no supported ONNX optimizer API")
+                report["optimizer_backend"] = "ktc.onnx_optimizer.onnx2onnx_flow"
+            report["status"] = "PASS"
+        except (Exception, SystemExit) as exc:
+            report["error"] = "{}: {}".format(type(exc).__name__, exc)
+            traceback.print_exc()
+        report["exit_code"] = 0 if report["status"] == "PASS" else EXIT_CODES["unknown"]
+        json.dump(report, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    print("Kneron runtime preflight: {}".format(report["status"]))
+    print("Interpreter: {} (Python {})".format(report["python_executable"], report["python_version"]))
+    if report["status"] == "PASS":
+        print("Optimizer API: {}".format(report["optimizer_backend"]))
+    else:
+        print("Reason: {}".format(report["error"]))
+    print("Runtime receipt: {}".format(output))
+    return report["exit_code"]
+
+
 def _validate_manifest(path, source):
     manifest = json.loads(path.read_text(encoding="utf-8"))
     expected = {"schema_version": 1, "purpose": "architecture_feasibility_only",
@@ -584,18 +638,25 @@ def run_screen(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--candidate-manifest", required=True)
-    parser.add_argument("--out", required=True)
+    parser.add_argument("--input")
+    parser.add_argument("--candidate-manifest")
+    parser.add_argument("--out", required=True,
+                        help="New screen output directory, or new JSON file for --probe-runtime")
+    parser.add_argument("--probe-runtime", action="store_true",
+                        help="Check installed SDK imports and APIs without evaluating a model")
     parser.add_argument("--platform", default="720")
     parser.add_argument("--model-id", type=int, default=32771)
     parser.add_argument("--model-version", default="0001")
     parser.add_argument("--toolchain-image-id", default=None)
     args = parser.parse_args(argv)
+    if not args.probe_runtime and (not args.input or not args.candidate_manifest):
+        parser.error("--input and --candidate-manifest are required for model screening")
     try:
+        if args.probe_runtime:
+            return probe_runtime(args)
         return run_screen(args)
     except (OSError, ValueError) as exc:
-        print("Cannot create a fresh screen run: {}".format(exc), file=sys.stderr)
+        print("Cannot create fresh screening evidence: {}".format(exc), file=sys.stderr)
         return EXIT_CODES["unknown"]
 
 

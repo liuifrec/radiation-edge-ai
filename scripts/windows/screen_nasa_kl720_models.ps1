@@ -4,7 +4,7 @@ param(
     [string]$Root = 'D:\radiation-edge-ai-data',
     [Alias('Python')][string]$TrainingPython = $env:RADEDGE_NASA_PYTHON,
     [string]$ToolchainImage = 'kneron/toolchain@sha256:2207d99c9f78deef90647a3da3047ec3f7942ec689385a586fee476f77e89041',
-    [string]$ContainerPython = 'python',
+    [string]$ContainerPython = '/workspace/miniconda/bin/python',
     [string]$OutputDir,
     [ValidateSet('r1countnet_v1', 'mobilenet_v2', 'resnet18')]
     [string[]]$Models = @('r1countnet_v1', 'mobilenet_v2', 'resnet18'),
@@ -72,7 +72,16 @@ function Invoke-CandidateCampaign {
     $SourceRoot = Join-Path $RepoRoot 'src'
     $VendorScript = Join-Path $SourceRoot 'radiation_edge_ai\nasa_bps\kneron_candidate_screen.py'
     if ([string]::IsNullOrWhiteSpace($TrainingPython)) {
-        $TrainingPython = Join-Path $Root 'envs\nasa311\Scripts\python.exe'
+        $ScientificCandidates = @(
+            (Join-Path $Root 'envs\nasa311\Scripts\python.exe'),
+            (Join-Path $Root 'envs\nasa39\Scripts\python.exe')
+        )
+        $TrainingPython = $ScientificCandidates |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+        if ([string]::IsNullOrWhiteSpace($TrainingPython)) {
+            throw "No NASA scientific environment was found under '$Root\envs'. Python 3.9 is supported in a separate nasa39 environment; follow docs/NASA_LOCAL_NPU_QUICKSTART.md or pass -TrainingPython '<existing scientific python.exe>'."
+        }
     }
     if (-not (Test-Path -LiteralPath $TrainingPython -PathType Leaf)) {
         throw "Scientific Python not found at '$TrainingPython'. Set up the separate NASA environment in docs/NASA_LOCAL_NPU_QUICKSTART.md or pass -TrainingPython '<existing scientific python.exe>'."
@@ -115,6 +124,13 @@ function Invoke-CandidateCampaign {
         toolchain_image_id = $null
         toolchain_repo_digests = @()
         container_python = $ContainerPython
+        selected_container_python = $null
+        runtime_preflight_status = 'NOT_RUN'
+        runtime_probe_exit_code = $null
+        runtime_probe = $null
+        runtime_probe_sha256 = $null
+        runtime_log = $null
+        runtime_log_sha256 = $null
         trained = $false
         nasa_images_read = $false
         physical_device_used = $false
@@ -228,6 +244,69 @@ function Invoke-CandidateCampaign {
             throw "Vendor screening adapter is missing: $VendorScript"
         }
         $Receipt.vendor_script_sha256 = Get-Sha256 $VendorScript
+
+        # The pinned image's validated SDK lives in its Miniconda environment;
+        # an interactive-shell alias or system Python is not a runtime contract.
+        # Probe the exact image and interpreter once before any model attempt.
+        $RuntimeRoot = Join-Path $OutputDir 'runtime'
+        New-Item -ItemType Directory -Path $RuntimeRoot | Out-Null
+        $RuntimeProbePath = Join-Path $RuntimeRoot 'runtime_probe.json'
+        $RuntimeLogPath = Join-Path $OutputDir 'runtime.log'
+        New-Item -ItemType File -Path $RuntimeLogPath | Out-Null
+        $Receipt.runtime_log = 'runtime.log'
+        $RuntimeArgs = @('run', '--rm', '--pull', 'never', '--network', 'none',
+            '--mount', "type=bind,source=$RepoRoot,target=/repo,readonly",
+            '--mount', "type=bind,source=$RuntimeRoot,target=/runtime",
+            '--workdir', '/runtime', '--entrypoint', $ContainerPython,
+            $Receipt.toolchain_image_id, '-B',
+            '/repo/src/radiation_edge_ai/nasa_bps/kneron_candidate_screen.py',
+            '--probe-runtime', '--out', '/runtime/runtime_probe.json',
+            '--toolchain-image-id', $Receipt.toolchain_image_id)
+        Write-Host '[Kneron runtime preflight]' $ContainerPython
+        $RuntimeResult = Invoke-NativeCaptured $Docker.Source $RuntimeArgs $RuntimeLogPath
+        $Receipt.runtime_probe_exit_code = $RuntimeResult.ExitCode
+        if (Test-Path -LiteralPath $RuntimeLogPath -PathType Leaf) {
+            $Receipt.runtime_log_sha256 = Get-Sha256 $RuntimeLogPath
+        }
+        try {
+            if (-not (Test-Path -LiteralPath $RuntimeProbePath -PathType Leaf)) {
+                throw "Interpreter produced no runtime receipt (exit $($RuntimeResult.ExitCode))."
+            }
+            $Receipt.runtime_probe = 'runtime/runtime_probe.json'
+            $Receipt.runtime_probe_sha256 = Get-Sha256 $RuntimeProbePath
+            $RuntimeProbe = Get-Content -LiteralPath $RuntimeProbePath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($RuntimeProbe.schema_version -ne 1 -or
+                $RuntimeProbe.purpose -ne 'toolchain_runtime_preflight' -or
+                $RuntimeProbe.toolchain_image_id -ne $Receipt.toolchain_image_id) {
+                throw 'Runtime receipt identity does not match this toolchain preflight.'
+            }
+            if ($RuntimeProbe.status -ne 'PASS' -or $RuntimeResult.ExitCode -ne 0 -or
+                $RuntimeProbe.exit_code -ne 0) {
+                throw "SDK import/API check failed (exit $($RuntimeResult.ExitCode)): $($RuntimeProbe.error)"
+            }
+            $ResolvedContainerPython = [string]$RuntimeProbe.python_executable
+            if (-not $ResolvedContainerPython.StartsWith('/') -or
+                $ResolvedContainerPython -match '[\r\n\x00]' -or
+                ($ContainerPython.StartsWith('/') -and $ResolvedContainerPython -cne $ContainerPython)) {
+                throw 'Runtime receipt does not identify the requested container interpreter.'
+            }
+            if ([version]$RuntimeProbe.python_version -lt [version]'3.7' -or
+                $RuntimeProbe.optimizer_backend -notin @('kneronnxopt.optimize', 'ktc.onnx_optimizer.onnx2onnx_flow')) {
+                throw 'Runtime receipt does not identify a compatible Python and optimizer API.'
+            }
+            $Receipt.selected_container_python = $ResolvedContainerPython
+            $Receipt.runtime_preflight_status = 'PASS'
+            Write-Host '[Kneron runtime preflight] PASS:' $ResolvedContainerPython
+        }
+        catch {
+            $Receipt.runtime_preflight_status = 'FAILED'
+            $RuntimeProblem = "Kneron runtime preflight failed: $($_.Exception.Message) See '$RuntimeLogPath'. Model evaluation did not start."
+            foreach ($Result in $Receipt.models) { $Result.reasons = @($RuntimeProblem) }
+            $Receipt.status = 'COMPLETE_WITH_UNKNOWN'
+            Write-Host $RuntimeProblem
+            return 3
+        }
+        Write-JsonFile $ReceiptPath $Receipt
         New-Item -ItemType Directory -Path $VendorRoot | Out-Null
         Write-Host 'Existing immutable toolchain image:' $Receipt.toolchain_image_id
         foreach ($Result in $Receipt.models) {
@@ -237,8 +316,8 @@ function Invoke-CandidateCampaign {
                 '--mount', "type=bind,source=$RepoRoot,target=/repo,readonly",
                 '--mount', "type=bind,source=$GraphsRoot,target=/graphs,readonly",
                 '--mount', "type=bind,source=$VendorRoot,target=/results",
-                '--workdir', '/results', '--entrypoint', $ContainerPython,
-                $Receipt.toolchain_image_id,
+                '--workdir', '/results', '--entrypoint', $ResolvedContainerPython,
+                $Receipt.toolchain_image_id, '-B',
                 '/repo/src/radiation_edge_ai/nasa_bps/kneron_candidate_screen.py',
                 '--input', ('/graphs/' + $Result.onnx_file),
                 '--candidate-manifest', ('/graphs/' + $Result.candidate_manifest),
@@ -264,8 +343,9 @@ function Invoke-CandidateCampaign {
                 if ($Screen.architecture -ne $Architecture -or
                     $Screen.source_onnx_sha256 -ne $Result.onnx_sha256 -or
                     $Screen.candidate_manifest_sha256 -ne $Result.candidate_manifest_sha256 -or
-                    $Screen.toolchain_image_id -ne $Receipt.toolchain_image_id) {
-                    throw 'Vendor screen identity does not match this graph, manifest, architecture and toolchain.'
+                    $Screen.toolchain_image_id -ne $Receipt.toolchain_image_id -or
+                    $Screen.python_executable -cne $ResolvedContainerPython) {
+                    throw 'Vendor screen identity does not match this graph, manifest, architecture, toolchain and interpreter.'
                 }
                 if ($Worker.ExitCode -ne $ExpectedExit[$Screen.support_status] -or
                     $Screen.exit_code -ne $ExpectedExit[$Screen.support_status]) {
@@ -282,6 +362,11 @@ function Invoke-CandidateCampaign {
             Write-JsonFile $ReceiptPath $Receipt
         }
         # A completed receipt also binds the immutable input artifacts after all workers exit.
+        if ((Get-Sha256 $RuntimeProbePath) -ne $Receipt.runtime_probe_sha256 -or
+            ($null -ne $Receipt.runtime_log_sha256 -and
+                (Get-Sha256 $RuntimeLogPath) -ne $Receipt.runtime_log_sha256)) {
+            throw 'Toolchain runtime evidence changed during vendor screening.'
+        }
         if ((Get-Sha256 $GraphManifestPath) -ne $Receipt.graph_manifest_sha256) {
             throw 'Candidate graph manifest changed during vendor screening.'
         }

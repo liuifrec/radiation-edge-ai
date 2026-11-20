@@ -539,6 +539,9 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             run.update(status="trained_pending_bn_calibration", parent_checkpoint=_identity(parent))
             _write_json(output / "run.json", run)
             optimizer.zero_grad(set_to_none=True)
+            # Training is complete; release Adam state before BN and reload
+            # temporarily allocate their own working tensors and model copy.
+            del optimizer, scheduler
             bn_audit, bn_rows = recalibrate_batchnorm(v1, model, bags, cache, device, fold)
             _write_csv(output / "bn_calibration_manifest.csv", bn_rows)
             bn_audit["manifest"] = _identity(output / "bn_calibration_manifest.csv")
@@ -564,6 +567,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                                             "max_absolute_error": error, "atol": 1e-6, "rtol": 1e-5}
             del model
             model = reloaded
+            del reloaded, saved, probe, expected, actual
             _write_json(output / "run.json", run)
             held_out = [bag for bag in bags if bag.fold_roles[fold] == "test"]
             bag_rows, nuclei = evaluate_bags_chunked(v1, model, held_out, cache,
@@ -576,7 +580,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                        image_snapshot_reverified_after_fold=True)
             _write_json(output / "run.json", run)
             all_bags.extend(bag_rows)
-            del model, optimizer, scheduler
+            del model
             if device.type == "cuda":
                 torch.cuda.empty_cache()
         _write_csv(args.out / architecture / "oof_bag_predictions.csv", all_bags)
