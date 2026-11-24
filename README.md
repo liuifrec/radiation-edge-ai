@@ -1,148 +1,193 @@
 # Radiation Edge AI
 
-**Provenance-aware offline edge AI for quantitative radiation microscopy.** Biological fidelity must be evaluated per assay rather than inferred from deployment or pixel-level accuracy.
+**Local NPU inference for radiation-biology microscopy, with public NASA data
+as the primary quantitative benchmark.**
 
-`radiation-edge-ai` develops and evaluates compact neural-network inference pipelines for the Kneron KL720 NPU, with the central question:
+We develop and compare models that execute on the physical Kneron KL720.
+The initial task uses NASA's [ground-based OSD-366 radiation study](https://osdr.nasa.gov/bio/repo/data/studies/OSD-366)
+and [public BPS microscopy benchmark](https://registry.opendata.aws/bps_microscopy/).
+The collection also retains useful released models for other microscopy tasks,
+with separate records for deployment fidelity and assay-specific accuracy.
+Training may use a GPU; the deployed inference workflow is intended to run
+locally without CUDA or cloud inference.
 
-> Can aggressively compressed and INT8-quantized edge models preserve biologically meaningful radiation-response measurements well enough that the resulting scientific conclusions remain equivalent to conventional reference analysis?
+## Start here
 
-The project is intentionally evaluated at three levels:
+| Document | Purpose |
+| --- | --- |
+| [Current project status](docs/PROJECT_STATUS.md) | Authoritative model/workstream status and immediate priorities |
+| [Progress evidence through 2026-11-24](docs/PROGRESS_EVIDENCE_20261124.md) | Reported measurements, source identities, failed candidates and evidence limits |
+| [PoC integration plan](docs/POC_INTEGRATION_PLAN.md) | Bring the existing Windows implementation into a reproducible shared release |
+| [Project charter](docs/PROJECT_CHARTER.md) | NASA priority, reusable model collection and prospective research scope |
+| [NASA local NPU quickstart](docs/NASA_LOCAL_NPU_QUICKSTART.md) | Commands implemented here for baseline replay, screening and training/export |
 
-1. **Model level** — FP32 teacher -> compact FP32 student -> INT8 edge model.
-2. **Image level** — segmentation/detection accuracy and error structure.
-3. **Biological level** — preservation of the quantitative endpoint and scientific conclusion.
+## Current checkpoint — 2026-11-24
 
-A modest loss in Dice, IoU, F1, or detection sensitivity may be acceptable if the relevant biological measurement remains equivalent. Conversely, a visually accurate model is unacceptable if compression systematically biases dose-response, repair kinetics, micronucleus frequency, or DNA-replication phenotypes.
+The project has a published historical NASA deployment and investigator-reported
+physical results for DNAi and Spotiflow. Together these describe three model
+pipelines spanning burden regression, fiber segmentation and point detection.
+They have different biological qualification levels.
 
-## Tier I: Radiation Edge Phenotyping
+**Source availability matters:** this update consolidates the progress record.
+The later Windows source was reported frozen at `fa5047f` under local tag
+`poc-kl720-multimodel-2026-11-20`. That commit and tag were unavailable in the
+public repository and this checkout at the 2026-11-24 audit. The new Spotiflow
+runner, pretrained-model registry and related Windows fixes have therefore
+**not been imported by this documentation update**. Raw Windows receipts and
+model binaries were not independently reopened or rehashed during consolidation.
+The [evidence ledger](docs/PROGRESS_EVIDENCE_20261124.md) distinguishes these
+reports from repository-inspected code and historical published records.
 
-The long-term portfolio has three complementary assay targets; the current offline demonstrator implements NASA 53BP1 and DNA-fiber:
+| Model / workstream | Deployment evidence | Task-specific accuracy and disposition |
+| --- | --- | --- |
+| NASA R1 v2 / R1CountNetV1 | Historical physical deployment; 2,058-nucleus fresh replay reported | Passed the original seven NASA biological-fidelity criteria within the documented scope; retain as NASA reference |
+| DNAi v3 | Repeated 27-window physical replay reported, with identical reconstructed results | Retain as physical DNA-fiber reference; broader assay validation remains incomplete |
+| Spotiflow `general` | All 63 engineering inputs reportedly qualified on physical KL720 using the higher-precision deployment | Retain in the reusable deployment collection; poor native NASA quantification remains, so it is not NASA accuracy-qualified |
+| New NASA MobileNetV2 | GPU training and eligible trained-graph screening reported | Additional physical NASA qualification pending; male-1 export remains excluded |
+| New NASA ResNet18 | Trained graph supported and female-fold BIE generated | BIE failed two frozen degradation criteria; no qualified NEF/device rollout |
+| DNAi v4 / v5 and Spotiflow `synth_complex` | Physical characterization or conversion investigations reported | Experimental; recorded biological or export failures remain open |
+| Perilipin2, γH2AX and micronuclei | Compiler, reader and detector investigations reported | Exploratory; no new accurate deployed assay established |
 
-| Track | Biological axis | Edge-AI task | Primary biological outputs |
-| --- | --- | --- | --- |
-| **gamma-H2AX / 53BP1** | DNA damage and repair | nuclei/foci detection or segmentation | foci per cell, dose-response, repair kinetics |
-| **Micronucleus** | chromosomal damage | nuclei/cell/micronucleus detection or segmentation | micronucleus frequency, cell-level scoring, later biodosimetry |
-| **DNA fiber** | replication stress | fiber segmentation | tract length, fork-related ratios, condition/genotype effect sizes |
+The detailed [status table](docs/PROJECT_STATUS.md) and
+[evidence ledger](docs/PROGRESS_EVIDENCE_20261124.md) retain numerical results and
+the reasons each candidate advances or remains blocked. Fold checkpoints and
+precision variants do not increase the architecture-family count.
 
-The shared comparison is:
+## Development priorities
 
-```text
-manual/public reference
-        vs
-original FP32 teacher
-        vs
-compact FP32 student
-        vs
-INT8 KL720 deployment
+1. **Consolidate the working PoC.** Integrate the actual qualified Windows
+   source for NASA R1 v2, DNAi v3 and Spotiflow `general`, with one discoverable
+   catalogue, explicit model identities and consistent result records.
+2. **Qualify an additional NASA architecture.** Carry an eligible candidate
+   through trained ONNX parity, training-only calibration, BIE, NEF and paired
+   physical accuracy assessment. A single-fold success is partial development
+   evidence until the intended evaluation is complete.
+3. **Expand useful model breadth.** Evaluate released models on appropriate
+   public references, retain faithful KL720 implementations, and record
+   task-specific suitability separately. A model can be hardware-qualified
+   while unsuitable for NASA 53BP1 quantification.
+
+The [integration plan](docs/POC_INTEGRATION_PLAN.md) defines completion criteria.
+The [NASA multi-model plan](docs/NASA_MULTI_MODEL_PLAN.md) retains the benchmark
+design; the [three-model campaign](docs/NASA_THREE_MODEL_CAMPAIGN_V1.md) retains
+its declared folds, training recipe and advancement criteria. Existing failures
+and frozen acceptance limits are preserved.
+
+## Run the available NASA baseline
+
+On the Windows host with the KL720 attached and the existing frozen assets
+available, run from the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\run_nasa_kl720.ps1
 ```
 
-## Core principle: biological fidelity
+The launcher uses the existing PLUS environment, verifies the frozen assets,
+loads the NEF once and performs 2,058 fresh inferences. Each run produces a new
+receipt with input hashes, hardware timing and a comparison with the historical
+physical predictions when that reference is available. See the
+[quickstart](docs/NASA_LOCAL_NPU_QUICKSTART.md) for setup, preflight and result
+interpretation. The data and model binaries are external assets; a fresh clone
+alone is insufficient to run this replay.
 
-The primary question is not whether a model survives quantization pixel-for-pixel. It is whether a biologist would reach the **same quantitative conclusion** using the edge deployment.
+Candidate architecture screening is also implemented:
 
-Planned analyses include conventional computer-vision metrics together with endpoint-specific agreement and equivalence statistics, for example:
-
-- Dice / IoU / precision / recall / F1;
-- Bland-Altman agreement;
-- ICC or other reproducibility measures where appropriate;
-- effect-size preservation;
-- equivalence testing with pre-specified margins;
-- dose-response parameter preservation;
-- latency, model size, RAM, throughput, and hardware requirements;
-- energy per image where measurement is practical.
-
-## Deployment concept
-
-```text
-microscopy image
-       |
-CPU preprocessing / tiling
-       |
-KL720 INT8 inference
-       |
-CPU post-processing
-       |
-quantitative biological endpoint
-       |
-results.csv + annotations + QC
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\screen_nasa_kl720_models.ps1
 ```
 
-The final inference pipeline should run on an ordinary PC without a CUDA installation. GPU resources may be used for training, distillation, or generation of reference outputs.
+The shared training/export entry point is `radedge-nasa`. The lightweight
+application entry point is `radedge`; use `--help` to inspect available commands.
+The generic NASA application batch path is currently CPU-only; historical
+physical replay uses the dedicated runner above. The later Spotiflow and DNAi
+one-command launchers reported from Windows require source import before they
+can be advertised as commands available from this repository.
 
-## Repository layout
+## Accuracy and interpretation
 
-```text
-radiation-edge-ai/
-|-- .github/workflows/ci.yml
-|-- docs/
-|-- manuscript/OUTLINE.md
-|-- scripts/windows/
-|-- src/radiation_edge_ai/
-|   |-- assay_runtime.py
-|   |-- execution.py
-|   |-- dna_fiber/
-|   |-- nasa_bps/
-|   `-- hardware/
-`-- tests/
-```
+Every model needs two distinct assessments:
 
-Large microscopy datasets, proprietary materials, model binaries, and KL720
-build artifacts are not committed to Git. Versioned upstream sources and
-frozen checksum evidence are documented where redistribution is permitted.
+- **Reference accuracy:** performance against the relevant biological labels
+  or measurements, with the dataset and evaluation stage named.
+- **Deployment fidelity:** changes from that model's native or FP32 outputs
+  to its converted and physical-device outputs.
 
-## Original roadmap (historical; not the v0.11 release status)
+Spotiflow's reported physical point F1 of `0.988889` is agreement with native
+Spotiflow detections. It is not F1 against independent NASA annotations. Its
+reported native NASA bag MAE of `11.724` foci per nucleus remains part of the
+record. Keeping the implementation does not promote it to the NASA
+accuracy-qualified subset. See the [paired reports](docs/PROGRESS_EVIDENCE_20261124.md).
 
-- **v0.1 — Reference baselines:** reproduce/freeze reference outputs for DNA fiber, gamma-H2AX/53BP1, and micronucleus public datasets.
-- **v0.2 — Compact students:** establish KL720-compatible lightweight FP32 models.
-- **v0.3 — Edge deployment:** ONNX/quantization/NEF conversion and real KL720 inference for all three tracks.
-- **v0.4 — Biological fidelity:** endpoint-level agreement, equivalence, and compression-fidelity analyses.
-- **v0.5 — Reproducible manuscript:** regenerate publication figures/tables from versioned benchmark outputs.
+NASA `avg_nfoci` is an aggregate sample/plate-well label. R1 per-nucleus outputs
+are latent burden scores, not individually supervised focus counts. Grouped
+development evaluation is used for model selection; the historical final
+holdout has already been examined and remains a locked comparison panel for
+new work. Reused engineering panels provide regression evidence. Independent
+biological confirmation requires unused sources or acquisitions and an
+appropriate reference. See the [biological-fidelity framework](docs/BIOLOGICAL_FIDELITY.md).
 
-## Validated NASA BPS 53BP1 milestone
+### Historical NASA R1 v2 result
 
-The NASA BPS OSD-366 R1 v2 track has completed end-to-end deployment validation from the frozen FP32 model through ONNX, development-only INT8 PTQ, BIE, NEF, and the physical KL720.
+The recorded final physical evaluation used **2,058 nuclei, 22 sample bags
+and 11 matched radiation contrasts**. Physical predictions were generated and
+frozen outcome-blind before biological reference outputs were read.
 
-The final source-held-out physical validation used **2,058 nuclei -> 22 sample/plate-well bags -> 11 matched radiation contrasts**. Physical predictions were generated and frozen outcome-blind before biological reference outputs were read.
+| Measurement | Recorded physical result |
+| --- | --- |
+| Bag MAE / RMSE | `0.7922 / 0.8893` |
+| Bag Pearson / Spearman | `0.9501 / 0.5729` |
+| Matched-delta MAE / Pearson / Spearman | `0.9405 / 0.9635 / 0.8182` |
+| Direction agreement with NASA reference | `10/11`; `4/4` at four hours |
+| Peak-time recovery | `3/3` |
+| Original biological-fidelity criteria | Seven of seven passed |
 
-Observed physical KL720 result:
+The [post-release audit](docs/NASA_R1_V2_POSTRELEASE_AUDIT.md) governs current
+interpretation of the [historical validation record](docs/NASA_BPS_R1_V2_KL720_VALIDATION_RECORD.md).
+The per-contrast agreement/failure pattern against the NASA reference was
+preserved; **literal FP32 predicted-sign identity was not**. One raw sign
+changed on a zero-reference contrast, without changing the seven-gate result.
+This is not formal statistical equivalence, a sex-effect analysis, or broad
+15-strain generalization.
 
-- bag MAE / RMSE / Pearson / Spearman: `0.7922 / 0.8893 / 0.9501 / 0.5729`;
-- matched-delta MAE / Pearson / Spearman: `0.9405 / 0.9635 / 0.8182`;
-- direction agreement: `10/11` overall, `4/4` at 4 h, `6/7` at 24+48 h;
-- source direction: BALBCF2 `4/5`, C57BLF2 `3/3`, C57BLF3 `3/3`;
-- peak-time recovery: `3/3`;
-- **all seven original predeclared biological-fidelity acceptance criteria passed**;
-- the physical deployment preserved the per-contrast agreement/failure pattern against the NASA aggregate reference and recovered all three reference peak times.
+The historical mean send/receive time was `3.676 ms` per nucleus. The separately
+reported 2026-11-17 replay mean was `3.930 ms`. These are different runs, with
+device-exchange timing rather than complete microscopy-workflow latency.
 
-Mean physical KL720 send+receive time over the 2,058-nucleus run was `3.676 ms` per nucleus (median `3.636 ms`, p95 `4.269 ms`), reported as descriptive device timing rather than a complete system/energy benchmark.
+## Runtime and reproducibility
 
-The scientific claim is **passing the original predeclared biological-fidelity acceptance criteria**, not strict numerical or formal statistical equivalence. Per-nucleus output remains a latent continuous 53BP1 burden score rather than an individually supervised focus count. The held-out sources are all female, so this is not a sex-effect analysis, and it must not be presented as broad 15-strain generalization.
+The application separates CPU image preparation and measurement reconstruction
+from neural inference on the KL720. Precision is deployment-specific: the
+historical NASA model uses INT8, while the reported Spotiflow deployment uses
+higher-precision fixed-point settings and retains some eight-bit operations.
+Neither CPU preprocessing nor a higher-precision setting implies neural CPU
+fallback or floating-point execution on the NPU.
 
-Full provenance, hashes, protocol-deviation documentation, claim boundaries, and the terminal freeze are recorded in `docs/NASA_BPS_R1_V2_KL720_VALIDATION_RECORD.md`.
+The source separates assay adapters, model training, hardware workers and
+result verification. Large datasets, model binaries and Kneron build artifacts
+remain outside Git. The [integration plan](docs/POC_INTEGRATION_PLAN.md) covers
+artifact recovery, the missing shared runtime capabilities and a reproducible
+release. A verified Git bundle preserves Git history; artifact hashes alone
+do not back up the corresponding weights, BIEs or NEFs.
 
-## Publication strategy
+At the inspected base `561fed0`, [GitHub CI](https://github.com/liuifrec/radiation-edge-ai/actions/runs/44691562702)
+passed all five jobs. An additional 2026-11-24 Linux source audit passed 350
+tests with 25 Windows-only skips. These checks concern that code revision;
+they do not rerun the Windows PoC or establish biological accuracy. Later
+Windows test counts remain attributed reports in the evidence ledger.
 
-The project is designed first as a **general biological-methods contribution**, with biological fidelity under model compression as the central methodological advance rather than a hardware demonstration.
+## Research direction
 
-Publication venue will be chosen after the final validation scope is frozen. A public-data/software-only package is being developed as a reproducible methods/software contribution; sufficiently strong independent radiation-biology validation could support reassessment for a field-specific methods venue.
-
-## Status: verified v0.11 offline two-assay demonstrator
-
-- **NASA BPS 53BP1**: frozen physical KL720 holdout passed the original
-  predeclared biological-fidelity gates (within the documented scope).
-- **DNA-fiber**: physical nine-window KL720 field inference, stitching, fiber
-  reconstruction, backend-aware `df2`/`dt2` provenance, and relocatable `drp1`
-  reporting have been verified. On one frozen field, foreground Dice versus
-  floating FP512 was `0.8653`; valid-fiber measurement correspondence was
-  limited. **This is not DNAi biological-fidelity validation.**
-- **Software**: public schema-aware verification, export integrity and tamper
-  detection, and GitHub Actions CI for Python 3.9 and 3.11 (131 tests per
-  Python version) have passed.
-- **Future scope**: micronucleus and broader independent DNA-fiber validation
-  are separate follow-up milestones.
-
-See [v0.11 evidence and claim boundaries](docs/UNIFIED_KL720_V0_11_RELEASE.md).
+The project is a ground-based research demonstrator. Public NASA microscopy
+supports the space-radiation-biology benchmark; the wider model collection
+supports prospective RERF research applications. Current evidence does not
+establish RERF assay validation, mission integration or flight qualification.
+The [research narrative](docs/SPACE_RADIATION_BIOLOGY_NARRATIVE.md) and
+[manuscript outline](manuscript/OUTLINE.md) separate completed evidence from
+planned comparisons.
 
 ## License
 
-Source code is licensed under BSD-3-Clause (see `LICENSE`). Third-party datasets, model weights, and upstream code remain subject to their original licenses and terms.
+Source code is licensed under BSD-3-Clause (see [LICENSE](LICENSE)). Third-party
+datasets, model weights and upstream code retain their original licenses and
+terms. A successful local conversion does not by itself authorize redistribution
+of those assets.

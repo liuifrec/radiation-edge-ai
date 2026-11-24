@@ -1,12 +1,26 @@
 # Biological Fidelity Framework
 
+**Current application (2026-11-24):** NASA remains the primary quantitative
+benchmark, alongside a reusable collection of faithfully deployed models.
+The [current status](PROJECT_STATUS.md) records deployment fidelity separately
+from assay-specific accuracy. This framework supplies endpoint-validation
+principles; its assay examples do not make every workstream equal priority.
+The update changes no frozen numerical acceptance criterion.
+
 ## Purpose
 
 This project distinguishes **image-level accuracy** from **biological measurement fidelity**.
 
 The central validation question is:
 
-> Would a biologist reach the same quantitative conclusion using KL720 INT8 inference as using the accepted reference workflow?
+> Would a biologist reach the same quantitative conclusion using physical KL720 inference as using the accepted reference workflow?
+
+Precision belongs to the exact deployment profile. INT8 and higher-precision
+fixed-point variants require their own evidence. Agreement with a native
+model's outputs measures deployment fidelity; agreement with appropriate
+biological references measures task-specific accuracy. A model may qualify
+for the reusable deployment collection while remaining unsuitable for a
+particular assay or dataset.
 
 ## Evaluation layers
 
@@ -80,7 +94,7 @@ Use explicit labels in benchmark outputs:
 - **R0:** manual/public ground truth;
 - **R1:** original FP32 teacher/reference workflow;
 - **R2:** compact FP32 student;
-- **R3:** INT8 KL720 student.
+- **R3:** physical KL720 model, with its exact fixed-point precision recorded.
 
 Where practical, retain raw paired measurements so that agreement can be analyzed without relying only on aggregate metrics.
 

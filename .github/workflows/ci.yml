@@ -16,7 +16,7 @@ permissions:
 jobs:
   offline:
     name: Python ${{ matrix.python-version }} offline
-    # Python 3.9 is not prebuilt for the newer Ubuntu 26.04 runner.
+    # Python 3.9 PLUS compatibility remains required; Ubuntu 26.04 has no 3.9 build.
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -78,3 +78,92 @@ jobs:
             printf 'Checking: %s\n' "${changed[@]}"
             python -m ruff check --select E4,E7,E9,F "${changed[@]}"
           fi
+
+  nasa-models:
+    name: NASA Python ${{ matrix.python-version }} training and ONNX contracts
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install CPU scientific test environment
+        run: |
+          python -m pip install 'torch==2.6.0' 'torchvision==0.21.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,nasa]'
+          python -m pip check
+      - name: Exercise architectures, candidate graphs and synthetic train-export workflow
+        env:
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: >-
+          python -m pytest -q
+          tests/test_nasa_model_factory.py
+          tests/test_nasa_multimodel.py
+          tests/test_nasa_candidate_graphs.py
+          tests/test_kneron_candidate_screen.py
+          tests/test_kneron_runtime_probe.py
+
+  windows-launcher:
+    name: Windows NASA launcher contracts
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Parse launchers in native Windows PowerShell
+        shell: powershell
+        run: |
+          foreach ($Launcher in @('run_nasa_kl720.ps1', 'screen_nasa_kl720_models.ps1')) {
+            $Tokens = $null
+            $ParseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD "scripts/windows/$Launcher"),
+              [ref]$Tokens, [ref]$ParseErrors
+            ) | Out-Null
+            if ($ParseErrors.Count -gt 0) {
+              $ParseErrors | Format-List
+              throw "NASA launcher has PowerShell syntax errors: $Launcher"
+            }
+          }
+      - name: Install offline test dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Verify Windows replay and candidate-screen process contracts
+        run: >-
+          python -m pytest -q
+          tests/test_nasa_kl720_replay.py
+          tests/test_nasa_candidate_screen_launcher.py
+      - name: Install isolated Python 3.9 NASA stack and export real graphs
+        shell: powershell
+        env:
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          $NasaRoot = Join-Path $env:RUNNER_TEMP 'nasa-python39'
+          $NasaEnv = Join-Path $NasaRoot 'envs\nasa39'
+          python -m venv $NasaEnv
+          if ($LASTEXITCODE -ne 0) { throw 'NASA Python 3.9 venv creation failed.' }
+          $NasaPython = Join-Path $NasaEnv 'Scripts\python.exe'
+          & $NasaPython -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { throw 'NASA pip update failed.' }
+          & $NasaPython -m pip install -e "$($PWD.Path)[nasa]"
+          if ($LASTEXITCODE -ne 0) { throw 'NASA scientific dependency installation failed.' }
+          & $NasaPython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'NASA dependency validation failed.' }
+          & $NasaPython -c "import sys, onnxruntime; assert sys.version_info[:2] == (3, 9); assert onnxruntime.__version__ == '1.19.2'"
+          if ($LASTEXITCODE -ne 0) { throw 'Wrong Python 3.9 compatibility runtime.' }
+          $env:RADEDGE_NASA_PYTHON = $null
+          $ScreenOut = Join-Path $NasaRoot 'screen'
+          powershell -NoProfile -ExecutionPolicy Bypass -File `
+            (Join-Path $PWD 'scripts/windows/screen_nasa_kl720_models.ps1') `
+            -Root $NasaRoot -OutputDir $ScreenOut -ExportOnly
+          if ($LASTEXITCODE -ne 0) { throw 'Real Windows Python 3.9 graph export failed.' }
+          $Receipt = Get-Content (Join-Path $ScreenOut 'screen_receipt.json') -Raw | ConvertFrom-Json
+          if ($Receipt.status -ne 'EXPORTED_ONLY' -or @($Receipt.models).Count -ne 3) {
+            throw 'Windows Python 3.9 did not export all three actual candidate graphs.'
+          }
