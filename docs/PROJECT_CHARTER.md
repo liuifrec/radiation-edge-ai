@@ -1,133 +1,136 @@
 # Project Charter
 
-## Primary direction — effective 2026-11-17
+**Direction consolidated 2026-11-24.**
 
-Build an expanding collection of high-accuracy models using publicly available
-NASA microscopy data, with as many different model architectures as practical
-executing locally on the physical Kneron KL720 NPU.
+The [project status](PROJECT_STATUS.md) is the current progress entry point.
+The [evidence ledger](PROGRESS_EVIDENCE_20261124.md) distinguishes inspected
+repository content from investigator-reported Windows results. The
+[PoC integration plan](POC_INTEGRATION_PLAN.md) defines the next deliverable.
+Historical protocols and their acceptance criteria retain their original scope.
 
-This owner-directed priority replaces the original three-assay development
-order. The [NASA multi-model plan](NASA_MULTI_MODEL_PLAN.md) is the current
-operational plan. Historical validation records retain their original scope.
+## Primary objective
 
-## Space-biology rationale
+Build an expanding collection of accurate biological-image models that execute
+locally on the physical Kneron KL720 NPU. Public NASA microscopy remains the
+primary quantitative benchmark. Preserve useful implementations of released
+pretrained models, including models whose NASA results do not meet the
+task-specific requirements.
 
-The project develops local analysis methods for a biological problem relevant
-to space radiation research. Its current deliverable is a ground-based model
-benchmark and physical inference workflow using public NASA data. Analysis
-near data acquisition provides the longer-term space-research motivation.
-The [space-biology narrative](SPACE_RADIATION_BIOLOGY_NARRATIVE.md) records the
-NASA sources, measured evidence and distinction between this demonstrator and
-future mission integration.
+The collection supports prospective radiation-biology research, including
+potential RERF applications. Current evidence comes from the recorded public
+datasets and engineering panels. It does not establish performance on RERF
+research material.
 
-This framing keeps NASA model breadth, reference accuracy and real local
-execution as the immediate priorities. Flight qualification and new instrument
-integration are future extensions, not additional near-term project tracks.
+The project is a ground-based research demonstrator. Analysis near data
+acquisition provides the longer-term space-biology motivation; the
+[space narrative](SPACE_RADIATION_BIOLOGY_NARRATIVE.md) records that context.
+Mission integration and environmental qualification remain future work.
 
-## Objectives
+## Two independent qualification decisions
 
-1. **Model breadth:** qualify multiple distinct architecture families and
-   useful capacity variants on a shared NASA benchmark.
-2. **High accuracy:** measure performance against NASA reference labels and
-   the additional error introduced by quantization and physical deployment.
-3. **Local NPU inference:** provide actual KL720 execution on an ordinary host
-   PC, with explicit CPU preprocessing/postprocessing and no CUDA or cloud
-   requirement for the deployed inference workflow.
-4. **Reproducible comparison:** use common data, task definitions, grouped
-   splits, scoring and declared training/search budgets.
-5. **Practical deployment:** produce model-specific reports covering accuracy,
-   compatibility, latency, memory and complete local workflow behavior.
+Every model has both a deployment status and a task-specific accuracy status.
 
-The project optimizes model breadth subject to measured accuracy and physical
-deployment requirements. A renamed checkpoint or precision setting does not
-create a new architecture. There is no arbitrary ceiling on the collection.
-
-## Initial common task and baseline
-
-Use NASA BPS / OSD-366 sample-level 53BP1 burden regression first. Preserve the
-existing FITC/DAPI/zero-channel, native-scale 256 x 256 input and bag aggregation
-as the initial comparison contract. NASA `avg_nfoci` is a sample/plate-well
-reference; individual network outputs are latent continuous burden scores.
-
-The frozen R1 v2 deployment based on `R1CountNetV1` is the first reference
-model. Its original seven biological criteria passed on the recorded physical
-holdout, with the limitations in the
-[post-release audit](NASA_R1_V2_POSTRELEASE_AUDIT.md). That result does not
-automatically qualify future architectures or define their accuracy thresholds.
-For a fair new comparison, retrain the R1CountNetV1 architecture on the same
-grouped folds as the other candidates. The frozen checkpoint is a historical
-deployment anchor, not an out-of-fold model for sources it already trained on.
-
-Start expansion with MobileNetV2 and ResNet18, then consider ResNet50 and other
-compatible families. Check the complete NASA-adapted graph early. Vendor
-examples are feasibility evidence, not NASA accuracy or adapted-model support.
-Training and distillation may use GPU resources.
-
-## Accuracy and evaluation principles
-
-Measure two separate quantities for every candidate:
-
-- **Reference accuracy:** prediction error and agreement against NASA labels,
-  including source-specific performance and radiation-response endpoints.
-- **Deployment fidelity:** paired changes from the same model's FP32 output
-  to the physical NPU output, including downstream measurements.
-
-Use continuous-error metrics for continuous endpoints. Define acceptance
-requirements before candidate evaluation using the benchmark's scientific
-purpose and reference variability. Correlation or classifier-style percentage
-accuracy alone cannot establish regression accuracy.
-
-Architecture selection uses grouped development evaluation. Keep related
-samples from the same biological source together. Each fold's quantization
-calibration uses only that fold's training sources, excluding its evaluation
-fold even when labels are not read. The previously examined final holdout is
-a historical comparison panel for new work, not newly
-untouched selection data. Independent confirmation requires unused sources or
-acquisitions; otherwise label results as developmental benchmarking.
-
-## Engineering responsibilities
-
-- **Benchmark/model development:** data manifests, architecture factory,
-  common training/scoring, export parity, calibration and compilation.
-- **Deployment runtime:** explicit model selection, physical KL720 execution,
-  consistent preprocessing/aggregation and structured output.
-- **Evidence/reporting:** model and dataset identity, measured accuracy,
-  deployment state, execution timing and reproducible result packages.
-
-Keep the application host, scientific runtime, Kneron PLUS runtime and compiler
-container isolated. Extend the shared NASA workflow instead of creating a new
-standalone runner for every architecture. Preserve the frozen R1 v2 evidence
-and evaluators; introduce new benchmark profiles for new models.
-
-## Priority boundaries
-
-| Work | Priority |
+| Decision | Required interpretation |
 | --- | --- |
-| NASA common benchmark and additional model architectures | Primary |
-| NASA physical batch inference, model profiles and reporting | Primary enabling work |
-| Accuracy recovery for promising NASA candidates | Primary within the declared development protocol |
-| DNAi and Perilipin2 | Secondary; retain existing work and evidence |
-| Broad desktop expansion | Only when it directly supports the NASA model workflow |
-| Micronucleus, PNKP and other assay expansion | Deferred unless explicitly reprioritized |
+| Deployment fidelity | Identify the exact weights and converted artifacts; distinguish ONNX parity, vendor placement, BIE comparison, NEF integrity and physical execution |
+| Reference accuracy | Name the assay, endpoint, dataset, reference type, evaluation stage, metrics and criteria; agreement with a native model is not independent biological truth |
 
-Existing secondary PRs can remain open without becoming prerequisites for
-NASA progress. A difficult candidate should receive a documented compatibility
-decision so other models can continue through the common pipeline.
+A physically qualified model can remain in the engineering collection while
+its NASA accuracy is unsuitable or unresolved. Entry into the NASA
+accuracy-qualified subset requires the applicable NASA reference-performance
+and deployment criteria. A model's suitability for another assay requires
+that assay's own assessment.
 
-## Near-term deliverable
+This distinction retains the reported Spotiflow implementation without
+overriding its unfavorable NASA training-screen result. It also preserves
+DNAi v3 as the physical reference while v4 and v5 remain experimental. Detailed
+dispositions and evidence provenance belong in the current status and ledger.
 
-The first additional architecture with measured NASA reference performance
-and real KL720 execution, supported by the common compact-CNN/MobileNetV2/ResNet18
-comparison. The factory and shared training/export path are implemented.
-Next, declare advancement criteria and screen complete adapted graphs before
-the full training campaign. Qualify models through FP32 evaluation, conversion,
-physical execution and the declared accuracy criteria; retain failures in the
-comparison. Expand the collection once this path is reusable.
+Count architecture families, architecture variants, trained checkpoints and
+deployment precision variants separately. Additional folds or precision
+settings do not create new architecture families. There is no arbitrary ceiling
+on useful models in the collection.
 
-## Publication direction
+## NASA benchmark and scientific controls
 
-Develop a reproducible public-data benchmark and model collection for accurate
-local NPU analysis of NASA radiation microscopy. Report architecture breadth,
-absolute accuracy, quantization effects, physical compatibility and local
-workflow cost. Manuscript claims follow completed results; no three-assay
-success requirement or publication venue is predetermined.
+The initial task remains NASA BPS / OSD-366 sample-level 53BP1 burden regression.
+The existing contract uses native-scale FITC/DAPI crops, a zero third channel,
+center padding to 256 x 256 and arithmetic-mean bag aggregation. NASA
+`avg_nfoci` is a sample/plate-well reference. Individual regression outputs
+remain latent continuous burden scores, not individually supervised counts.
+
+The historical R1 v2 checkpoint is the deployment anchor. It passed its
+original seven biological-fidelity criteria within the documented cohort.
+The [post-release audit](NASA_R1_V2_POSTRELEASE_AUDIT.md) governs interpretation:
+reference-agreement patterns were preserved, but literal FP32 predicted-sign
+identity and formal statistical equivalence are not established.
+
+The [three-model campaign](NASA_THREE_MODEL_CAMPAIGN_V1.md) defines the shared
+R1CountNetV1/MobileNetV2/ResNet18 development comparison. The
+[NASA plan](NASA_MULTI_MODEL_PLAN.md) retains the benchmark and deployment
+contracts. Its dated implementation checkpoints are read alongside current
+status, rather than used to erase subsequently reported results.
+
+Maintain source-grouped evaluation, training-only calibration and declared
+training/search budgets. Keep the previously examined final holdout as a
+historical comparison panel for new work. Independent confirmation requires
+unused sources or acquisitions; additional nuclei from an already used source
+do not establish biological independence.
+
+Use continuous-error metrics, source-specific results and group-aware
+uncertainty for continuous endpoints. Define advancement and deployment
+requirements before the relevant readout. Preserve failed candidates and
+their original criteria. Reused engineering panels remain useful regression
+tests without becoming new independent biological validation.
+
+## Shared platform design
+
+Separate four identities: scientific task, trained model, deployment profile
+and evaluation record. Share model discovery, artifact verification, device
+execution and reporting infrastructure. Keep preprocessing, aggregation,
+object reconstruction and biological QC specific to each assay.
+
+Training, adaptation and distillation may use GPUs. Deployed inference should
+run locally without CUDA or cloud inference. Record CPU preprocessing and
+postprocessing explicitly; CPU neural computation is a separate hybrid
+deployment status. Record the actual precision profile, including mixed
+fixed-point configurations, rather than describing every deployment as INT8.
+
+Keep the application, scientific environment, Kneron PLUS runtime and compiler
+container isolated. Use resident device sessions to amortize model loading
+across a batch. Preserve the frozen historical implementations and introduce
+versioned profiles for new models and benchmarks.
+
+## Ordered priorities
+
+| Priority | Deliverable | Completion condition |
+| --- | --- | --- |
+| 1 | Consolidate the reported NASA R1 v2, DNAi v3 and Spotiflow `general` PoC | Recover the actual source, integrate the qualified components, provide one catalogue and replay route, and bind fresh integration checks to the frozen artifacts |
+| 2 | Qualify another NASA architecture | Carry an eligible trained candidate through its declared conversion, physical and reference-accuracy assessments; name partial-fold results explicitly |
+| 3 | Expand the pretrained-model collection | Select useful endpoints and released weights, assess native behavior on appropriate public data, then measure complete-graph deployment fidelity |
+| 4 | Advance selected assay investigations | Run a bounded experiment with a specific hypothesis and stopping decision; retain other tracks and their evidence in the backlog |
+
+An eligible MobileNetV2 fold is a reasonable next NASA deployment candidate.
+Its male-1 export remains excluded while its strict parity failure is unresolved.
+The failed ResNet18 BIE and corrective experiments remain recorded failures;
+their criteria are not relaxed by this charter.
+
+DNAi improvements, Perilipin2 compiler work, gamma-H2AX and micronucleus
+development remain useful tracks. Their completion is not a prerequisite for
+releasing the existing PoC. General GUI expansion follows the needs of the
+shared model workflow.
+
+## Research and release outcome
+
+The intended contribution connects model portability, retained biological
+measurements and measured local workflow cost. Report cold start, device
+exchange and end-to-end timing with their workload definitions. Add memory
+and energy claims only when they have been measured.
+
+Publish source and redistributable metadata with the evidence stage named.
+External images, model binaries and upstream materials retain their storage
+and licensing requirements. A source release must explain how the corresponding
+artifacts are obtained or located. Preserve failures and distinguish reported
+results from independently inspected evidence. Manuscript claims follow the
+completed evidence package; no venue or multi-assay success requirement is
+predetermined.
