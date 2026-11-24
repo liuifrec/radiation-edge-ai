@@ -1,107 +1,176 @@
 # Manuscript Outline
 
-Working target: **Cell Reports Methods**  
-Fallback: **Radiation Research**
+**Scope updated 2026-11-24:** edge AI for space radiation biology through NASA
+public-data benchmarking, supported by a reusable local model collection.
+The [current status](../docs/PROJECT_STATUS.md) distinguishes historical records,
+investigator-reported Windows progress and missing source imports. This outline
+combines completed evidence categories with planned analyses; it does not
+establish a completed multi-model NASA physical comparison. Venue selection
+follows the final evidence package.
 
 ## Working title
 
-**Biological-fidelity-preserving edge AI for quantitative radiation microscopy**
+**Edge AI for space radiation biology: benchmarking local NPU inference on
+public NASA microscopy**
 
-Alternative title:
+## Central research question
 
-**Preserving quantitative biological phenotypes under INT8 edge inference across radiation-relevant microscopy assays**
+Which locally deployable architectures accurately recover NASA sample-level
+radiation-response measurements, and what additional error and execution cost
+does physical NPU deployment introduce?
 
-## Central claim
+## Space-biology motivation
 
-Aggressive model compression and INT8 deployment can be evaluated more meaningfully by preservation of downstream biological measurements than by image-level accuracy alone. A shared validation framework can identify assay-specific compression limits across distinct quantitative microscopy tasks.
+Start with the biological question and the value of analysis near data
+acquisition. The selected NASA data come from a ground radiation experiment.
+Use NASA's [OSD-366 record](https://osdr.nasa.gov/bio/repo/data/studies/OSD-366)
+for that provenance and its
+[BPS benchmark entry](https://registry.opendata.aws/bps_microscopy/) for the
+public image subset. Use JPL's
+[onboard science-autonomy example](https://www.jpl.nasa.gov/go/owls/onboard-science-autonomy/)
+to motivate preservation of useful science under communications constraints.
+
+The current study is a ground-based computational and hardware benchmark.
+The [project narrative and evidence plan](../docs/SPACE_RADIATION_BIOLOGY_NARRATIVE.md)
+separates established results from future instrument or mission integration.
+
+## Intended contribution
+
+- A reproducible NASA public-data benchmark with explicit task and grouping.
+- A growing collection of physically executed, accuracy-assessed models.
+- A common comparison of reference accuracy, deployment-induced error,
+  architecture breadth, compatibility and computational cost.
+- An offline inference workflow with versioned models and auditable outputs.
+
+The frozen NASA R1 v2 result supplies a baseline. The new NASA study still needs
+an additional architecture's complete physical accuracy assessment. Reported
+DNAi v3 and Spotiflow `general` deployments support a separate heterogeneous
+model-portability demonstration. Their accuracy references and tasks differ;
+they are not additional NASA-qualified models. Perilipin2 and other exploratory
+assays remain secondary context.
 
 ## Abstract structure
 
-1. Problem: modern microscopy AI often assumes GPU-class inference.
-2. Gap: quantization studies emphasize vision metrics rather than biological endpoint preservation.
-3. Method: compare R0/R1/R2/R3 across three complementary assays.
-4. Results: quantify image-level degradation, biological endpoint fidelity, and edge deployment performance.
-5. Impact: establish a reproducible framework for biologically trustworthy edge microscopy.
+1. Problem: biological experiments relevant to space research motivate accurate
+   image analysis near data acquisition, where remote computation and timely
+   data transfer may be constrained.
+2. Objective: compare multiple architectures on a public NASA task and measure
+   their actual NPU execution and accuracy.
+3. Methods: grouped evaluation, shared training/scoring, FP32 and converted
+   models, physical KL720 predictions and complete local timing.
+4. Results: report only completed model counts, accuracy, deployment gaps and
+   performance; include blocked and unsuccessful candidates.
+5. Impact: a reproducible ground benchmark for selecting local NPU models for
+   space-radiation-biology measurements and extending the collection.
 
-## Introduction
+## Results plan
 
-- AI has improved quantitative microscopy but deployment remains hardware- and software-heavy.
-- Edge NPUs offer inexpensive local inference, but INT8 compression can alter measurements in subtle ways.
-- Conventional metrics do not establish whether biological conclusions are preserved.
-- Radiation-relevant assays provide diverse, quantitative test cases.
-- Study objective: define and test a biological-fidelity framework across gamma-H2AX/53BP1, micronucleus, and DNA-fiber analysis.
+### 1. NASA benchmark, task definitions and source-aware evaluation
 
-## Results
+- Public BPS/OSD-366 data provenance and metadata crosswalk.
+- Initial task: sample-level 53BP1 burden regression using aggregate `avg_nfoci`.
+- Native-scale 256 x 256 FITC/DAPI input and sample-bag aggregation.
+- Grouped development roles and availability of independent confirmation data.
+- Explicit separation from the previously examined historical final holdout.
+- Ground-study origin and the selected subset's biological scope.
 
-### 1. A common edge-AI framework for quantitative microscopy
+### 2. Accuracy across multiple FP32 architectures
 
-- reference hierarchy R0-R3;
-- common preprocessing/inference/post-processing architecture;
-- KL720 deployment path;
-- shared benchmark design.
+- R1CountNetV1 and additional backbones retrained in the same grouped folds;
+  the frozen R1 v2 checkpoint remains a separate historical anchor.
+- Common task, preprocessing, loss and declared training/search budget.
+- Architecture families, capacity variants and pretrained initialization.
+- Bag MAE/RMSE, agreement, source-specific errors and radiation contrasts.
+- Group-aware uncertainty and failure analysis.
 
-### 2. DNA-fiber edge segmentation preserves replication measurements
+### 3. Conversion and physical local NPU inference
 
-- DNAi reference baseline;
-- compact student;
-- FP32 vs INT8 vs KL720;
-- tract-length/ratio agreement;
-- failure analysis for difficult fibers.
+- Complete-graph feasibility, export parity, calibration, BIE and NEF stages.
+- Physical execution of the exact trained models on KL720.
+- Model-by-model compatibility and failure records.
+- Explicit CPU preprocessing/postprocessing and any hybrid network computation.
+- Historical compact-CNN validation and the 2026-11-17 fresh replay shown as
+  separate baseline evidence; neither supplies new-architecture results.
+- Reported DNAi and Spotiflow device qualification as a separate portability
+  panel, after the actual source and receipts are recovered and verified.
+- Higher-precision fixed-point deployments identified explicitly; do not
+  describe the entire collection as INT8 or as floating-point NPU inference.
 
-### 3. Edge gamma-H2AX/53BP1 inference preserves radiation-response measurements
+### 4. Accuracy retained after deployment
 
-- public reference baseline;
-- nuclei/foci detection/segmentation;
-- foci-per-cell agreement;
-- dose-response and/or repair-related endpoint preservation.
+- Physical predictions versus NASA reference labels.
+- Paired FP32-to-NPU changes in predictions and biological endpoints.
+- Qualification against requirements defined before candidate evaluation.
+- Distinguish numerical agreement, biological decision criteria and formal
+  statistical equivalence; use the latter only if actually tested.
 
-### 4. Distilled micronucleus inference preserves chromosomal-damage scoring
+### 5. Accuracy, breadth and practical inference cost
 
-- high-capacity teacher/reference;
-- compact student;
-- nucleus/MN segmentation or detection;
-- MN frequency and cell-level agreement.
-
-### 5. Image accuracy and biological fidelity diverge under progressive compression
-
-- cross-assay compression frontier;
-- model size/compute vs Dice/F1 vs endpoint error;
-- assay-specific biological operating points.
-
-### 6. Real KL720 deployment enables GPU-free quantitative inference
-
-- latency/throughput;
-- model size/RAM;
-- CPU-only comparison;
-- reproducibility and deployment constraints;
-- energy if measured robustly.
+- Model/family counts with attempted-model denominators.
+- Accuracy versus measured latency, model size and memory where available.
+- Cold start, steady device execution and complete input-to-report timing.
+- NASA physical batch inference and explicit model selection.
+- Demonstrate the local workflow without a CUDA or cloud inference dependency.
 
 ## Discussion
 
-- Biological fidelity is distinct from computer-vision fidelity.
-- Acceptable compression is assay-dependent.
-- Edge inference can reduce deployment barriers without assuming that INT8 is harmless.
-- Teacher architectures need not be hardware-compatible if compact students preserve endpoints.
-- Limitations: public datasets, domain shift, assay-specific margins, hardware-specific compiler constraints.
-- Future validation with institution-specific/historical radiation-biology datasets.
-- Potential selective-escalation architecture for uncertain cases.
+- Which architectures provide useful accuracy and local deployment tradeoffs?
+- When does quantization alter the sample endpoint despite close predictions?
+- How do compiler restrictions and training choices constrain model breadth?
+- How can a shared workflow make additional models reproducible?
+- Limits: aggregate supervision, biological-source coverage, available labels,
+  historical-panel exposure and hardware/toolchain specificity.
+- Additional NASA tasks/datasets and other NPU targets as future extensions.
+- What the ground benchmark contributes toward future local space-biology
+  analysis, and what still requires instrument-specific or environmental work.
+- Optional later experiment: preserved biological information under a declared
+  simulated communications budget; do not claim downlink savings before measurement.
 
-## Methods
+## Methods and reporting requirements
 
-- public datasets and provenance;
-- reference implementations;
-- student architectures;
-- training/distillation;
-- ONNX export;
-- calibration/INT8 conversion;
-- KL720 compilation/runtime;
-- assay-specific post-processing;
-- computer-vision metrics;
-- biological endpoint definitions;
-- equivalence/agreement statistics;
-- hardware benchmarking;
-- reproducibility.
+- Public data versions, selected images, task labels and source grouping.
+- Training/calibration/evaluation separation and model-selection policy.
+- Model definitions, initialization, seeds, losses and training/search budgets.
+- Preprocessing, ONNX parity and pinned conversion/runtime identities.
+- Physical prediction collection and sample-level aggregation.
+- Accuracy requirements, effect metrics, uncertainty and timing definitions.
+- Model/profile manifests, result verification and reproducibility commands.
+
+## Current evidence boundary
+
+The historical R1 v2 physical deployment passed its original seven biological
+criteria. The [post-release audit](../docs/NASA_R1_V2_POSTRELEASE_AUDIT.md)
+governs interpretation: latent per-nucleus burden, sample-level comparison,
+preserved reference-agreement pattern, limited source coverage, and the
+documented metadata-normalization recovery. This is not a direct focus-count
+accuracy result or automatic validation of additional models.
+
+The user-provided console for the 2026-11-17 replay reports 2,058 nuclei,
+22 bags, one model upload and numerical repeatability PASS at the fixed
+`1e-4` limit. Mean host-observed send/receive time was 3.930 ms. Record this
+as repeatability evidence, preserve the original validation's separate timing,
+and identify the [PR #31 record](https://github.com/liuifrec/radiation-edge-ai/pull/31)
+as the present source. Receipt/result files have not been independently
+audited in that record. It remains the established NASA physical reference.
+
+The [progress ledger](../docs/PROGRESS_EVIDENCE_20261124.md) records later reports:
+three NASA architectures trained over nine folds; ResNet18 female-fold BIE
+failure on two frozen degradation limits; repeated DNAi v3 physical replay;
+and Spotiflow `general` physical qualification on 63 engineering inputs.
+The reported Spotiflow point F1 of 0.988889 is agreement with native detections,
+while its native NASA bag MAE remained 11.724 foci per nucleus. Both belong in
+the record. Neither deployment agreement nor the engineering panel provides
+independent NASA biological qualification.
+
+Those Windows source files and raw receipts were unavailable in the 2026-11-24
+consolidation. The [integration plan](../docs/POC_INTEGRATION_PLAN.md) defines
+source recovery and verification before they become a reproducible manuscript
+result package. Reported test counts are not biological validation, and reused
+engineering panels remain regression/characterization evidence.
 
 ## Data and code availability
 
-All redistributable source code, manifests, configuration, and publication-safe derived benchmark tables will be released in this repository. Upstream datasets/models will be referenced by canonical DOI/accession/release rather than duplicated unless redistribution is explicitly appropriate.
+Release code, model definitions, redistributable manifests, configuration,
+benchmark tables and reproducibility instructions. Identify public NASA
+sources and upstream model terms. Model binaries and microscopy images remain
+outside Git under the existing project storage rules.
