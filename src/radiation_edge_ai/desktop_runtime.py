@@ -21,7 +21,7 @@ ASSAYS = {
     "nasa-53bp1-r1-v2": "NASA 53BP1: latent burden, not an individual focus count.",
     "dnai-fiber-v3": "DNA fibers: physical execution exists; biological fidelity unvalidated.",
 }
-ACTIONS = ("doctor", "device-scan", "run-plan", "run-assay", "verify", "export")
+ACTIONS = ("doctor", "device-scan", "run-plan", "run-assay", "verify", "export", "tracka-reference")
 CLI_ENTRY = "from radiation_edge_ai.cli import main; raise SystemExit(main())"
 
 
@@ -128,11 +128,23 @@ def build_job(settings: Settings, repo: Path, action: str,
         if not probe.is_file():
             raise ValueError("Device probe is missing from this worktree.")
         command = [str(plus), "-u", str(probe)]
-        physical = True  # USB discovery only; no model is loaded by this action.
+        physical = True
     elif action == "verify":
         command = prefix + ["verify", str(source_path), "--json"]
     elif action == "export":
         command = prefix + ["assay-report", str(source_path)]
+    elif action == "tracka-reference":
+        from radiation_edge_ai.perilipin2_tracka import BUNDLE_SCHEMA
+        if (obj.get("schema") != BUNDLE_SCHEMA or
+                obj.get("purpose") != "frozen_two_field_reference_replay"):
+            raise ValueError("Choose the prepared TRACKA_INPUT_BUNDLE.json, not a model or old receipt.")
+        outside_repository(source_path, repo)
+        scientific = file_path(settings.scientific_python, "Track A scientific Python")
+        command = [str(scientific), "-X", "utf8", "-u", "-m",
+                   "radiation_edge_ai.perilipin2_tracka", "run", "--bundle", str(source_path)]
+        assay = "perilipin2-tracka-m2-reference"
+        backend = "cpu-saved-nuclear-masks"
+        physical = False
     else:
         if action == "run-plan":
             identity = obj.get("assay")
@@ -163,7 +175,7 @@ def build_job(settings: Settings, repo: Path, action: str,
             if port is not None:
                 command += ["--kl720-port", str(port)]
             physical = True
-    if action in ("run-assay", "export"):
+    if action in ("run-assay", "export", "tracka-reference"):
         if not output.strip():
             raise ValueError("Choose a NEW output folder.")
         destination = Path(output).expanduser().resolve()
@@ -173,7 +185,7 @@ def build_job(settings: Settings, repo: Path, action: str,
         if source_path and destination in source_path.parents:
             raise ValueError("Output cannot contain the selected source.")
         out = str(destination)
-        command += ["--output-dir", out]
+        command += ["--out" if action == "tracka-reference" else "--output-dir", out]
     return Job(action, tuple(command), str(source_path) if source_path else None,
                sha256(source_path) if source_path else None, backend, assay, physical, out)
 
@@ -199,7 +211,7 @@ def run_job(job: Job, settings: Settings, repo: Path,
     (folder / "request.json").write_text(
         json.dumps(request, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(repo / "src")  # Bind execution to this worktree.
+    env["PYTHONPATH"] = str(repo / "src")
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8:backslashreplace"
     env["RADEDGE_DATA_ROOT"] = str(root)
@@ -239,7 +251,7 @@ def run_job(job: Job, settings: Settings, repo: Path,
         "physical_inference_verified_by_launcher": False,
         "biological_validation_performed_by_launcher": False,
         "raw_console_sha256": sha256(raw_path) if raw_path.exists() else None,
-        "note": "Use the existing core run/transaction/package records as execution evidence.",
+        "note": "Use core run/transaction/package records or TRACKA_EXECUTION.json as execution evidence.",
     }
     receipt = folder / "launcher_receipt.json"
     receipt.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n", encoding="utf-8")
