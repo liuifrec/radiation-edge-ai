@@ -1,5 +1,13 @@
 # NASA: run the KL720, then expand the model collection
 
+**Progress update — 2026-11-24:** the [current status](PROJECT_STATUS.md) and
+[evidence ledger](PROGRESS_EVIDENCE_20261124.md) record the later GPU campaign
+and conversion results. This guide documents commands available in this
+checkout; its screening/training steps remain reproduction instructions.
+The newer Windows Spotiflow/DNAi replay launchers and trained-model PTQ fixes
+require the [separate source integration](POC_INTEGRATION_PLAN.md). Their
+reported success does not make those files available in this checkout.
+
 The first command below runs the **existing frozen NASA R1 v2 model on the
 physical KL720**. Candidate-graph screening and the shared training/export
 workflow then support a fair comparison of the compact CNN, MobileNetV2

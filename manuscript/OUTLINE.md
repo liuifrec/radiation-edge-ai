@@ -1,11 +1,12 @@
 # Manuscript Outline
 
-**Scope updated 2026-11-17:** edge AI for space radiation biology through NASA
-public-data benchmarking of multiple accurate models for local NPU inference.
-This outline follows the
-[current project plan](../docs/NASA_MULTI_MODEL_PLAN.md). It describes planned
-analyses, not completed multi-model results. Venue selection follows the final
-evidence package.
+**Scope updated 2026-11-24:** edge AI for space radiation biology through NASA
+public-data benchmarking, supported by a reusable local model collection.
+The [current status](../docs/PROJECT_STATUS.md) distinguishes historical records,
+investigator-reported Windows progress and missing source imports. This outline
+combines completed evidence categories with planned analyses; it does not
+establish a completed multi-model NASA physical comparison. Venue selection
+follows the final evidence package.
 
 ## Working title
 
@@ -41,9 +42,12 @@ separates established results from future instrument or mission integration.
   architecture breadth, compatibility and computational cost.
 - An offline inference workflow with versioned models and auditable outputs.
 
-The frozen NASA R1 v2 result supplies a baseline. The new study must establish
-its additional model results. DNAi and Perilipin2 are secondary context; a
-successful three-assay comparison is not a prerequisite for this manuscript.
+The frozen NASA R1 v2 result supplies a baseline. The new NASA study still needs
+an additional architecture's complete physical accuracy assessment. Reported
+DNAi v3 and Spotiflow `general` deployments support a separate heterogeneous
+model-portability demonstration. Their accuracy references and tasks differ;
+they are not additional NASA-qualified models. Perilipin2 and other exploratory
+assays remain secondary context.
 
 ## Abstract structure
 
@@ -87,6 +91,10 @@ successful three-assay comparison is not a prerequisite for this manuscript.
 - Explicit CPU preprocessing/postprocessing and any hybrid network computation.
 - Historical compact-CNN validation and the 2026-11-17 fresh replay shown as
   separate baseline evidence; neither supplies new-architecture results.
+- Reported DNAi and Spotiflow device qualification as a separate portability
+  panel, after the actual source and receipts are recovered and verified.
+- Higher-precision fixed-point deployments identified explicitly; do not
+  describe the entire collection as INT8 or as floating-point NPU inference.
 
 ### 4. Accuracy retained after deployment
 
@@ -143,7 +151,22 @@ The user-provided console for the 2026-11-17 replay reports 2,058 nuclei,
 as repeatability evidence, preserve the original validation's separate timing,
 and identify the [PR #31 record](https://github.com/liuifrec/radiation-edge-ai/pull/31)
 as the present source. Receipt/result files have not been independently
-audited in this session. The current physical-model count remains one.
+audited in that record. It remains the established NASA physical reference.
+
+The [progress ledger](../docs/PROGRESS_EVIDENCE_20261124.md) records later reports:
+three NASA architectures trained over nine folds; ResNet18 female-fold BIE
+failure on two frozen degradation limits; repeated DNAi v3 physical replay;
+and Spotiflow `general` physical qualification on 63 engineering inputs.
+The reported Spotiflow point F1 of 0.988889 is agreement with native detections,
+while its native NASA bag MAE remained 11.724 foci per nucleus. Both belong in
+the record. Neither deployment agreement nor the engineering panel provides
+independent NASA biological qualification.
+
+Those Windows source files and raw receipts were unavailable in the 2026-11-24
+consolidation. The [integration plan](../docs/POC_INTEGRATION_PLAN.md) defines
+source recovery and verification before they become a reproducible manuscript
+result package. Reported test counts are not biological validation, and reused
+engineering panels remain regression/characterization evidence.
 
 ## Data and code availability
 

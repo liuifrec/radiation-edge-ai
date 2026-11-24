@@ -1,8 +1,18 @@
 # NASA public-data multi-model NPU plan
 
-**Priority decision: 2026-11-17.** This is the current development plan for
-Radiation Edge AI. It supersedes the original equal-priority three-assay
-roadmap and the former NASA pilot sequence.
+**Benchmark design declared 2026-11-17; progress links updated 2026-11-24.**
+This document retains the NASA benchmark design and its original implementation
+checkpoint. The [current project status](PROJECT_STATUS.md) is the authoritative
+progress summary; the [evidence ledger](PROGRESS_EVIDENCE_20261124.md) records the
+later investigator-reported GPU campaign, conversion failures and physical PoC.
+The scientific task, folds and frozen acceptance criteria are unchanged.
+
+The [project charter](PROJECT_CHARTER.md) also retains faithful implementations
+of released models as a reusable engineering collection, even when they are
+unsuitable for NASA 53BP1 quantification. Deployment qualification and
+task-specific accuracy are separate statuses. The immediate software milestone
+is the [PoC source integration](POC_INTEGRATION_PLAN.md); the next NASA research
+milestone remains an additional accurately evaluated physical architecture.
 
 ## Goal
 
@@ -46,7 +56,11 @@ The current input/endpoint definitions are documented in the
 [R1 v2 contrast policy](NASA_BPS_R1_V2_CONTRAST_POLICY.md) and
 [physical validation record](NASA_BPS_R1_V2_KL720_VALIDATION_RECORD.md).
 
-## Architecture queue and honest model counts
+## Architecture queue at the 2026-11-17 checkpoint
+
+This table preserves the starting queue. Training and screening subsequently
+reported from Windows are summarized in [current status](PROJECT_STATUS.md);
+the pending labels below describe the original checkpoint.
 
 | Candidate | Purpose | Evidence at this planning checkpoint |
 | --- | --- | --- |
@@ -194,30 +208,37 @@ metadata; keep existing dataset/model-binary storage rules and upstream terms.
 
 ## Ordered next work
 
-1. Retain the implemented common recipe and existing grouped roles; declare
-   numeric advancement/qualification requirements before reviewing new results
-   and inventory available unused NASA sources for independent confirmation.
-   The [first campaign declaration](NASA_THREE_MODEL_CAMPAIGN_V1.md) retains the
-   eight existing development advancement criteria for the same six-source
-   cohort; independent qualification and deployment-degradation criteria
-   remain separate work.
-2. Preserve the successful full-graph screen reported on 2026-11-17 and run
-   the bounded real-data training/export check in the quickstart. Inspect
-   actual GPU availability and resources before the full training campaign.
-3. Train and evaluate the compact CNN, MobileNetV2 and ResNet18 on the same
-   three folds. Report three architectures and nine fold models separately.
-4. Carry a promising additional architecture through model-specific PTQ,
-   NEF compilation, physical execution and paired reference/deployment
-   assessment. A single-fold run remains a partial development milestone.
-5. Complete NASA batch/model-profile integration and measure full local
-   workflow cost, then expand the compatible architecture queue.
+1. Recover and review the actual frozen Windows source, then integrate the
+   qualified runtime, model catalogue and conversion fixes according to the
+   [integration plan](POC_INTEGRATION_PLAN.md). A report is not a source import.
+2. Preserve the completed three-architecture/nine-fold GPU campaign as
+   investigator-reported development evidence. Import and verify its existing
+   reports before repeating work; do not treat the historical checkpoint as
+   an out-of-fold comparator or pool different training budgets.
+3. Select one eligible additional NASA model and declare a bounded conversion
+   attempt before its new readout. MobileNetV2 is a candidate; its male-1
+   export remains excluded. Keep the ResNet18 failed BIE and original limits
+   unchanged. Record the selected fold, checkpoint, calibration and criteria.
+4. Complete the selected model's PTQ, BIE, NEF and physical assessment. A
+   single-fold success is partial development evidence; complete the intended
+   folds before claiming pooled physical out-of-fold accuracy.
+5. Finish the general NASA physical batch adapter and measure complete local
+   workflow cost. Inventory unused sources/acquisitions for independent
+   confirmation, then expand the architecture queue through the shared path.
 
-DNAi, Perilipin2, general GUI expansion and new assays are secondary unless
-they directly unblock this NASA workflow or the owner reprioritizes them.
-Existing side-branch results remain useful evidence, with no requirement to
-finish every branch before starting the NASA benchmark.
+The [campaign declaration](NASA_THREE_MODEL_CAMPAIGN_V1.md) retains the original
+eight development advancement criteria. These are not universal independent
+biological qualification criteria. The reused historical panel remains locked.
 
-## Current evidence versus planned capability
+DNAi v3 and Spotiflow `general` are part of the reported reusable PoC, with
+their own biological limits. Other assay and GUI investigations remain
+secondary; completing every side branch is not a NASA prerequisite.
+
+## Historical implementation checkpoint — 2026-11-17
+
+The following records what was available at that checkpoint. Later reported
+progress and present source availability are consolidated in the
+[evidence ledger](PROGRESS_EVIDENCE_20261124.md).
 
 The frozen NASA R1 v2 model is the established
 physical reference. Its seven historical gates passed, with a latent burden

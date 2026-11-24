@@ -1,6 +1,6 @@
 # Edge AI for space radiation biology
 
-**Positioning and next evidence milestone — 2026-11-17**
+**Positioning and progress consolidation — 2026-11-24**
 
 ## Project statement
 
@@ -13,8 +13,10 @@ measurements, and which models actually execute on physical edge hardware.
 The current platform is a ground-based research demonstrator. The longer-term
 motivation is biological analysis near data acquisition, including future
 systems whose computing and communication resources constrain remote analysis.
-The [NASA multi-model plan](NASA_MULTI_MODEL_PLAN.md) remains the operational
-plan; this document supplies the space context and evidence-based narrative.
+The [current status](PROJECT_STATUS.md) and [integration plan](POC_INTEGRATION_PLAN.md)
+define immediate work. The [NASA multi-model plan](NASA_MULTI_MODEL_PLAN.md)
+retains the common benchmark design. This document supplies the space context
+and the distinction between reported progress and reproducible source.
 
 **Working scientific title:**
 
@@ -58,12 +60,16 @@ preserve radiation-biology measurements when inference runs on local edge
 hardware. Using public NASA microscopy and aggregate sample references, the
 project connects source-grouped model evaluation with reproducible conversion,
 physical NPU execution and traceable biological outputs. A frozen compact-CNN
-baseline already has recorded KL720 validation, and a common workflow now
-supports compact CNN, MobileNetV2 and ResNet18 candidates. The next result is
-a comparative model collection with measured reference accuracy and paired
-FP32-to-physical differences. This ground-based benchmark provides a practical
-foundation for investigating autonomous biological analysis under computing
-and communication constraints relevant to future space research.
+baseline already has recorded KL720 validation, and the common NASA workflow
+supports compact CNN, MobileNetV2 and ResNet18 candidates. Later Windows reports
+describe physical DNA-fiber and released Spotiflow deployments. Their engineering
+qualification is recorded separately from assay accuracy; Spotiflow's native
+NASA result remains poor. The next software milestone is a reproducible release
+of the working pipelines, followed by another physically qualified NASA
+architecture. This ground-based platform supports prospective RERF research
+applications and investigation of local analysis under computing and
+communication constraints. Neither institutional assay validation nor mission
+integration follows from the current demonstration.
 
 The current data and supervision definitions are recorded in the
 [multi-model plan](NASA_MULTI_MODEL_PLAN.md) and the
@@ -72,20 +78,26 @@ Each nucleus receives a latent continuous burden score; the sample mean is
 compared with NASA `avg_nfoci`. The current endpoint is a research measurement,
 with the interpretation limits in the [post-release audit](NASA_R1_V2_POSTRELEASE_AUDIT.md).
 
-## Evidence available now
+## Evidence at the consolidation checkpoint
 
-| Evidence | What it establishes | What remains to measure |
+The [evidence ledger](PROGRESS_EVIDENCE_20261124.md) attributes the newer numbers
+to investigator-supplied Windows reports. Their raw receipts and the frozen
+`fa5047f` source were not retrieved in this consolidation. The documented result
+and the availability of its implementation are separate facts.
+
+| Evidence | What it establishes within its stated source | What remains |
 | --- | --- | --- |
 | Frozen NASA R1 v2 physical validation | One compact model passed its original seven biological criteria within the documented cohort | New architectures require their own evaluation |
 | Fresh KL720 replay on 2026-11-17 | User-reported completion of 2,058 nuclei, 22 bags and one model upload; historical numerical repeatability PASS | An independent file audit would require the receipt and result files |
-| Shared three-architecture implementation | Factory, grouped training, training-only BatchNorm recalibration, all-nucleus evaluation and ONNX parity export | Actual NASA development results for the new common recipe |
-| Early graph screening adapters | Complete untrained candidate export and fresh vendor evidence collection with explicit support status | Actual Kneron results from the toolchain host, followed by checks of the trained graphs |
-| Software validation at PR #31 | 250 local tests and four passing CI jobs, including Windows and CPU/ONNX checks | Software tests use synthetic inputs and do not establish new biological accuracy |
-| Baseline host-observed device timing | Fresh replay mean 3.930 ms, median 4.001 ms, p95 4.408 ms per nucleus for send/receive | Complete workflow latency, memory and measured energy |
+| NASA GPU campaign | Reported completion of three architectures and nine fold models, with shared development metrics | Additional NASA architecture's full physical accuracy qualification; ResNet18 female BIE failed two criteria |
+| DNAi v3 | Reported 27-window physical replay and exact reconstructed-field repeatability | Broader biological validation; v4/v5 remain experimental |
+| Spotiflow `general` | Reported 63-case physical qualification, native-agreement F1 0.988889 and median input-preparation-to-count time 67.18 ms | Source integration and assay-specific accuracy; the NASA counting result is not qualified |
+| Published software base `561fed0` | Five successful CI jobs; separate Linux audit with 350 passes and 25 Windows-only skips | New Windows source is not covered by that base revision's CI |
 
-Source records: [historical physical validation](NASA_BPS_R1_V2_KL720_VALIDATION_RECORD.md),
+Source records: [current interpretation of historical validation](NASA_R1_V2_POSTRELEASE_AUDIT.md),
 [PR #31 and user-provided replay evidence](https://github.com/liuifrec/radiation-edge-ai/pull/31),
-and [the passing PR checks](https://github.com/liuifrec/radiation-edge-ai/actions/runs/43994526339).
+[current base CI](https://github.com/liuifrec/radiation-edge-ai/actions/runs/44691562702),
+and the [consolidated reports](PROGRESS_EVIDENCE_20261124.md).
 
 The fresh replay's `PASS` uses a maximum absolute difference limit of `1e-4`
 against the historical physical predictions. The console does not disclose
@@ -95,22 +107,24 @@ comparison. Neither run measures pure NPU kernel time or the whole microscopy
 workflow. The fresh replay confirms repeatability of the established model;
 it does not create another architecture or a new blinded biological result.
 
-The current count is **one established NASA physical model** and **three
-implemented architecture definitions** for the new comparison. A completed
-three-architecture, three-fold campaign will produce nine trained fold models,
-representing three architectures.
+The current record contains **one established NASA physical model**, a reported
+three-architecture/nine-fold NASA development campaign, and reported physical
+DNAi and Spotiflow pipelines. Those three physical pipelines serve different
+tasks; they are not three NASA accuracy-qualified models. Precision settings,
+folds and repeated replays do not add architecture families.
 
-## Next milestone: the first additional accurate physical model
+## Next milestones: integrate the PoC and qualify another NASA model
 
-The immediate aim is a second architecture with recorded NASA reference
-performance and real KL720 execution, accompanied by a common comparison
-covering the first three architectures and any failures.
+The immediate software aim is to recover the existing qualified Windows source
+and deliver the [shared PoC release](POC_INTEGRATION_PLAN.md). The NASA research
+aim remains a second architecture with recorded reference performance and real
+KL720 execution, accompanied by the common comparison and its failures.
 
 | Step | Concrete deliverable | Completion rule |
 | --- | --- | --- |
-| 1. Declare advancement criteria | Versioned requirements for sample-reference error, source-specific behavior and deployment-induced degradation | Written before reviewing new candidate results; distinguish development qualification from independent confirmation |
-| 2. Screen the three complete graphs | One fresh toolchain screening record per NASA-adapted architecture, with ONNX identity and operator/partition evidence | Explicit supported, unsupported or unknown status; unrecognized output stays unknown |
-| 3. Run the common NASA benchmark | Three architectures evaluated on the same three source-held-out folds | Full out-of-fold predictions and one comparison table; report training budgets and initialization |
+| 1. Integrate qualified source | Reviewed import of the frozen runtime, model registry and known conversion fixes | Actual source available, existing artifact identities preserved, scoped software and physical checks |
+| 2. Reconcile the completed NASA campaign | Import the existing grouped comparison and exact trained-graph/export records | Preserve failures and attribution; do not repeat training just to fill a documentation gap |
+| 3. Declare the next conversion attempt | One eligible checkpoint/fold, training-only calibration, applicable degradation requirements and a bounded experiment budget | Written before the new readout; preserve failed BIEs and existing margins |
 | 4. Convert a promising new model | Trained-graph parity, training-source-only PTQ, BIE and a distinct compiled NEF | Model-specific hashes and fresh conversion evidence; screening alone is insufficient |
 | 5. Execute and assess the new model | Physical predictions against both NASA references and the same model's FP32 outputs | Named evaluation stage and declared criteria; complete all folds before claiming pooled physical OOF performance |
 | 6. Measure practical local cost | Model load, device exchange and complete input-to-report timing; model size and host memory | Fixed host and workload, with timing scope and failed cases recorded |
@@ -122,6 +136,10 @@ panel; it does not become unused selection data again.
 
 ### Early graph screening implementation
 
+The following describes implemented screening capabilities, not an instruction
+to repeat the reported completed campaign. Consult [current status](PROJECT_STATUS.md)
+before choosing a new run.
+
 The [candidate exporter](../src/radiation_edge_ai/nasa_bps/candidate_graphs.py)
 now exports all three complete randomly initialized models using the NASA
 input shape and scalar head. Synthetic PyTorch/ONNX Runtime parity checks
@@ -130,14 +148,15 @@ collects a fresh whole-graph assessment, records graph/toolchain identities
 and distinguishes positive support, explicit rejection and unknown evidence.
 CPU neural computation and recognized shape bookkeeping have separate records.
 The [Windows launcher and result guide](NASA_LOCAL_NPU_QUICKSTART.md#3-screen-the-complete-candidate-graphs-before-full-training)
-make this the next executable host step.
+document how to reproduce this stage or screen a new candidate.
 
 The existing [trained-fold exporter](../src/radiation_edge_ai/nasa_bps/multimodel.py)
 still requires a completed, BatchNorm-audited training run. New fold-specific
 exports default to 192 calibration inputs from 48 training bags. The historical
 NASA vendor scripts remain tied to the original R1 v2 identities and its
-288-input panel. Reusable trained-model PTQ, compilation and physical profiles
-are subsequent work, and the eventual trained graph is screened again.
+288-input panel. Later Windows reports describe trained-model PTQ work; the
+reusable path and its fixes await source integration here. Every exact trained
+graph still requires its own screening and deployment evidence.
 
 The new screen requires positive, fresh evidence. It does not inherit the
 [historical optimizer/evaluator](../src/radiation_edge_ai/nasa_bps/kneron_optimize_evaluate_r1_v2.py)
