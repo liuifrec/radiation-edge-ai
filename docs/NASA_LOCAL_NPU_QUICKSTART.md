@@ -4,9 +4,9 @@
 [evidence ledger](PROGRESS_EVIDENCE_20261124.md) record the later GPU campaign
 and conversion results. This guide documents commands available in this
 checkout; its screening/training steps remain reproduction instructions.
-The newer Windows Spotiflow/DNAi replay launchers and trained-model PTQ fixes
-require the [separate source integration](POC_INTEGRATION_PLAN.md). Their
-reported success does not make those files available in this checkout.
+The [trained-model PTQ recovery](NASA_POC_PTQ_RECOVERY.md) documents the five
+verified trained exports and the failed ResNet18 female-fold BIE readout.
+The [integration plan](POC_INTEGRATION_PLAN.md) tracks the other assay workflows.
 
 The first command below runs the **existing frozen NASA R1 v2 model on the
 physical KL720**. Candidate-graph screening and the shared training/export

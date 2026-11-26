@@ -1,0 +1,26 @@
+{
+  "acceptance_version": 1,
+  "declared_utc": "2026-11-18T05:59:47Z",
+  "acceptance_document_sha256": "ad4277e63d9966300253667a980c6e34817050b8df9166b53494916e34567b55",
+  "architecture": "resnet18",
+  "fold": "fold_female_role",
+  "training_run_sha256": "add7951f471ddf644a92fe3d457c83a5253cc5f9342a82e2fd3df25771ced451",
+  "source_onnx_sha256": "277ba0acd6c9e17200948d8f979cabe4fc56069b0e3885c7854d244667a706a2",
+  "optimized_onnx_sha256": "afb362866af2f61d51e7aae17ae11e262c4a551f790acf8ff8e7c104aa00573a",
+  "bie_sha256": "2428c60742e862f3bc3b6a6831284a3afa2b9e4db652fa760f331e3500bbea2f",
+  "development_manifest_sha256": "23e21fdc8bf00a2814b64c56223cfd3d8e96eda71bdbff5d8ec74dae218cf5a9",
+  "fp32_nuclei_sha256": "f75c5a5bd33f503c20fb14630ad92d08b104b20911d8c5adeb702b3fb47035dd",
+  "fp32_bags_sha256": "044ebf0cfaa2a4d09c589bdf784e40e346150521e0925c03168155ba4b115306",
+  "nasa_reference_sha256": "fcbf1339805e02a7ca9cec36b476438b0512b222bd70ac2f90ed75c238a0b01f",
+  "strong_effect_min_abs_fp32_delta": 0.2,
+  "maximums": {
+    "bag_paired_mae": 0.05,
+    "bag_paired_max_abs": 0.15,
+    "contrast_paired_mae": 0.1,
+    "contrast_paired_max_abs": 0.2,
+    "bag_mae_increase": 0.05,
+    "strong_effect_sign_reversals": 0,
+    "four_hour_nonpositive": 0,
+    "incomplete_or_nonfinite_panels": 0
+  }
+}
