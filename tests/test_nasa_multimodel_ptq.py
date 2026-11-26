@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from radiation_edge_ai.nasa_bps import multimodel_ptq as ptq
+from radiation_edge_ai.nasa_bps import multimodel_training_bie_pilot as training_pilot
 
 
 def write_rows(path, rows):
@@ -134,6 +135,41 @@ def test_heldout_source_is_rejected_before_quantization(pilot):
     pin_inputs()
     with pytest.raises(ValueError, match="train-only provenance"):
         ptq.preflight(args)
+
+
+def test_mobilenet_case_cannot_reuse_a_resnet_screen(pilot, monkeypatch):
+    args, _, _ = pilot
+    args.architecture = "mobilenet_v2"
+    case = ptq.Case(args.architecture, 32781, ptq.sha256(args.onnx), ptq.sha256(args.export),
+                    ptq.EXPECTED_TRAIN_SHA, ptq.sha256(args.screen))
+    monkeypatch.setattr(ptq, "MOBILENET_FEMALE", case)
+    with pytest.raises(ValueError, match="Wrong trained architecture"):
+        ptq.preflight(args)
+    export = ptq.load_json(args.export)
+    export["architecture"] = args.architecture
+    args.export.write_text(json.dumps(export))
+    case = case._replace(export=ptq.sha256(args.export))
+    monkeypatch.setattr(ptq, "MOBILENET_FEMALE", case)
+    with pytest.raises(ValueError, match="wrong trained vendor screen"):
+        ptq.preflight(args)
+    screen = ptq.load_json(args.screen)
+    screen.update(architecture=args.architecture, model_id=case.model_id, export_receipt_sha256=case.export)
+    args.screen.write_text(json.dumps(screen))
+    monkeypatch.setattr(ptq, "MOBILENET_FEMALE", case._replace(screen=ptq.sha256(args.screen)))
+    assert len(ptq.preflight(args)["arrays"]) == 192
+
+
+def test_training_characterization_is_source_balanced_and_outcome_blind():
+    rows = [dict(sample_id=str(i), source_name=source, sample_name="bag_{:02d}".format(i // 4),
+                 calibration_fold=ptq.FOLD, dataset_role="development_train_ptq_calibration",
+                 fold_female_role="train") for source in sorted(training_pilot.SOURCES) for i in range(48)]
+    selected = training_pilot.panel(rows)
+    assert [(row["source_name"], row["sample_id"]) for row in selected] == [
+        (source, str(index)) for source in sorted(training_pilot.SOURCES) for index in (0, 4, 8, 12)
+    ]
+    rows[-1][ptq.FOLD] = "test"
+    with pytest.raises(ValueError, match="Non-training"):
+        training_pilot.panel(rows)
 
 
 @pytest.mark.parametrize("shift", [0, 0.01])

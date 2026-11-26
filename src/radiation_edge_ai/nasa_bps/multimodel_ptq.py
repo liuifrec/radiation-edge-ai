@@ -15,7 +15,7 @@ import shutil
 import sys
 import time
 import traceback
-from collections import Counter
+from collections import Counter, namedtuple
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -30,6 +30,22 @@ EXPECTED_SCREEN_SHA = 'dd2a540fe22a78edb7972a23b2635c60da7aff5d2fec235f2c196e108
 V1_POLICY_SHA = '20a685eba6502e5cb10d4506f39f8b155d6b29548b2df10915fe9dd5cd470db9'
 FIXED_SIM_API = 'sys_flow.inference.inference_dynasty_fx'
 FIXED_SIM_SHA = '111ff72391b1b6918e72a20e89c233b621b3846f6a54f3155629d394d547f2d2'
+
+Case = namedtuple('Case', 'architecture model_id source export training screen')
+MOBILENET_FEMALE = Case(
+    'mobilenet_v2', 32781, '2f18b2330ca3289ab422e1ff47b526b4bfa6a46fc4bd7354346609715f575e45',
+    '40b89d4b349dfa4060e4fd62a31cf27647b6fb04c1bdef93b4f7b84165f32257',
+    '861e93ef0a128fdab8f81cb2d992a3fce8833aa92fdc09494c9008ebad4fe5b5',
+    '9bab4fa38ef118a2da7cfbaa9f7fa710eb75f02c132c0e3d87be945c53dad983')
+
+
+def trained_case(args):
+    architecture = getattr(args, 'architecture', ARCH)
+    if architecture == MOBILENET_FEMALE.architecture:
+        return MOBILENET_FEMALE
+    require(architecture == ARCH, 'Unrecognized trained PTQ architecture')
+    return Case(ARCH, MODEL_ID, EXPECTED_SOURCE_SHA, EXPECTED_EXPORT_SHA,
+                EXPECTED_TRAIN_SHA, EXPECTED_SCREEN_SHA)
 
 
 def sha256(path):
@@ -107,18 +123,19 @@ def read_calibration_array(path, expected_sha256):
 def preflight(args):
     import numpy as np
 
+    case = trained_case(args)
     graph = Path(args.onnx)
     optimized = Path(args.optimized)
     screen_path = Path(args.screen)
     export_path = Path(args.export)
     manifest_path = Path(args.manifest)
-    require(sha256(graph) == EXPECTED_SOURCE_SHA, 'Source trained ONNX SHA256 changed')
-    require(sha256(export_path) == EXPECTED_EXPORT_SHA, 'Strict export receipt SHA256 changed')
-    require(sha256(screen_path) == EXPECTED_SCREEN_SHA, 'Successful vendor screen receipt SHA256 changed')
+    require(sha256(graph) == case.source, 'Source trained ONNX SHA256 changed')
+    require(sha256(export_path) == case.export, 'Strict export receipt SHA256 changed')
+    require(sha256(screen_path) == case.screen, 'Successful vendor screen receipt SHA256 changed')
 
     export = load_json(export_path)
     screen = load_json(screen_path)
-    require(export.get('architecture') == ARCH and export.get('fold') == FOLD,
+    require(export.get('architecture') == case.architecture and export.get('fold') == FOLD,
             'Wrong trained architecture/fold in export')
     require(export.get('parity_pass') is True and export.get('calibration_arrays') == 192,
             'Original strict FP32 parity is incomplete')
@@ -126,9 +143,9 @@ def preflight(args):
             'Original FP32 parity thresholds changed')
     require(export.get('dataset_role') == 'development_train_ptq_calibration',
             'Calibration data role is not development train PTQ')
-    require(export['training_run'].get('sha256') == EXPECTED_TRAIN_SHA,
+    require(export['training_run'].get('sha256') == case.training,
             'Training run identity changed')
-    require(export['onnx'].get('sha256') == EXPECTED_SOURCE_SHA,
+    require(export['onnx'].get('sha256') == case.source,
             'Export ONNX identity changed')
     require(export['calibration'].get('sha256') == sha256(manifest_path),
             'Calibration manifest identity changed')
@@ -139,21 +156,21 @@ def preflight(args):
             'latent_continuous_per_nucleus_53bp1_burden', 'Output science contract changed')
 
     require(screen.get('purpose') == 'trained_fp32_exact_graph_feasibility_only'
-            and screen.get('architecture') == ARCH and screen.get('fold') == FOLD,
+            and screen.get('architecture') == case.architecture and screen.get('fold') == FOLD,
             'Unrecognized or wrong trained vendor screen')
     require(screen.get('trained') is True and screen.get('original_fp32_parity_pass') is True,
             'Screen did not verify trained strict-parity export')
     require(screen.get('support_status') == 'supported'
             and screen.get('vendor_evaluation_completed') is True,
             'Fresh successful target-720 IP evaluation is absent')
-    require(screen.get('source_onnx_sha256') == EXPECTED_SOURCE_SHA
-            and screen.get('export_receipt_sha256') == EXPECTED_EXPORT_SHA,
+    require(screen.get('source_onnx_sha256') == case.source
+            and screen.get('export_receipt_sha256') == case.export,
             'Vendor screen graph/receipt identity disagrees')
     require(screen.get('optimized_onnx_sha256') == sha256(optimized),
             'Optimized vendor-evaluated graph differs from screen')
     require(screen.get('toolchain_image_id') == IMAGE_ID
             and args.image_id == IMAGE_ID, 'Pinned Kneron toolchain image changed')
-    require(screen.get('model_id') == MODEL_ID
+    require(screen.get('model_id') == case.model_id
             and screen.get('platform') == '720', 'Unexpected model ID or device platform')
     require(screen.get('ptq_performed') is False and screen.get('nef_compiled') is False,
             'Prior screen unexpectedly claims quantization or compilation')
@@ -319,6 +336,7 @@ def vendor_model(path):
 
 
 def run(args):
+    case = trained_case(args)
     output = Path(args.out).resolve()
     output.mkdir(parents=True, exist_ok=False)
     report_path = output / 'ptq_receipt.json'
@@ -326,7 +344,7 @@ def run(args):
         'schema_version': 1,
         'purpose': 'verified_development_train_ptq_pilot',
         'created_utc': datetime.now(timezone.utc).isoformat(),
-        'architecture': ARCH, 'fold': FOLD, 'model_id': MODEL_ID,
+        'architecture': case.architecture, 'fold': FOLD, 'model_id': case.model_id,
         'model_version': '0001', 'platform': '720',
         'toolchain_image_id': args.image_id,
         'python_executable': sys.executable,
@@ -347,7 +365,7 @@ def run(args):
         report['status'] = 'PREFLIGHT_PASS'
         save_json(report_path, report)
         print('TRAINED PTQ INPUT VALIDATION: PASS (192 NCHW arrays / 48 train bags)', flush=True)
-        km = ktc.ModelConfig(MODEL_ID, '0001', '720', onnx_model=vendor_model(args.optimized))
+        km = ktc.ModelConfig(case.model_id, '0001', '720', onnx_model=vendor_model(args.optimized))
         # Same training-only, raw, normalized arrays used in the strict export;
         # vendor default analysis mode as in the pinned toolchain documentation.
         print('Starting Kneron ModelConfig.analysis; no NEF compile.', flush=True)
@@ -395,6 +413,7 @@ def run(args):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('stage', choices=['parity', 'quantize'])
+    p.add_argument('--architecture', choices=[ARCH, MOBILENET_FEMALE.architecture], default=ARCH)
     p.add_argument('--onnx', required=True)
     p.add_argument('--optimized', required=True)
     p.add_argument('--screen', required=True)
