@@ -290,9 +290,9 @@ def tensor(name, shape):
         shape=SimpleNamespace(dim=[Dim(value) for value in shape]))))
 
 
-def fake_runtime(monkeypatch, evaluation_callback, optimizer_callback=None):
+def fake_runtime(monkeypatch, evaluation_callback, optimizer_callback=None, output_name="score"):
     model = SimpleNamespace(graph=SimpleNamespace(
-        initializer=[], input=[tensor("input", [1, 3, 256, 256])], output=[tensor("score", [1])],
+        initializer=[], input=[tensor("input", [1, 3, 256, 256])], output=[tensor(output_name, [1])],
         value_info=[], node=[]), opset_import=[SimpleNamespace(domain="", version=11)])
     onnx = SimpleNamespace(__version__="test-fixture", load=lambda *a, **k: model,
                            checker=SimpleNamespace(check_model=lambda model: None),
@@ -314,6 +314,63 @@ def fake_runtime(monkeypatch, evaluation_callback, optimizer_callback=None):
 
     ktc = SimpleNamespace(ModelConfig=Config, onnx_optimizer=SimpleNamespace(onnx2onnx_flow=optimize))
     monkeypatch.setattr(screen, "_load_runtime", lambda: (onnx, ktc, None))
+
+
+def trained_inputs(tmp_path, monkeypatch):
+    source = tmp_path / "model.onnx"
+    source.write_bytes(b"trained-test-placeholder")
+    calibration = tmp_path / "calibration_manifest.csv"
+    calibration.write_text("sample_id,source_name\n" + "".join(
+        "n{},s{}\n".format(i, i % 4) for i in range(192)), encoding="utf-8")
+    parity = tmp_path / "onnx_parity.csv"
+    parity.write_text("sample_id,source_name,pytorch,onnx,parity_pass\n" + "".join(
+        "n{},s{},1.0,1.0,True\n".format(i, i % 4) for i in range(192)), encoding="utf-8")
+    manifest = tmp_path / "export.json"
+    manifest.write_text(json.dumps({
+        "architecture": "resnet18", "fold": "fold_female_role", "parity_pass": True,
+        "calibration_arrays": 192, "parity_atol": 1e-5, "parity_rtol": 1e-4,
+        "dataset_role": "development_train_ptq_calibration",
+        "onnx": {"path": r"D:\exports\model.onnx", "sha256": screen.sha256_file(source)},
+        "training_run": {"sha256": "a" * 64}, "checkpoint": {"sha256": "b" * 64},
+        "calibration": {"sha256": screen.sha256_file(calibration)},
+        "source_split": {"train_sources": ["s0", "s1", "s2", "s3"], "test_sources": ["s4", "s5"]},
+    }), encoding="utf-8")
+    monkeypatch.setitem(screen.TRAINED_EXPORTS, ("resnet18", "fold_female_role"),
+                        (screen.sha256_file(manifest), 32783))
+    monkeypatch.setitem(screen.TRAINED_PARITY_SHA256, ("resnet18", "fold_female_role"),
+                        screen.sha256_file(parity))
+    return ["--input", str(source), "--trained-export", str(manifest), "--out", str(tmp_path / "out"),
+            "--toolchain-image-id", "sha256:2207d99c9f78deef90647a3da3047ec3f7942ec689385a586fee476f77e89041"]
+
+
+def test_trained_screen_shares_evaluator_and_binds_export(tmp_path, monkeypatch):
+    args = trained_inputs(tmp_path, monkeypatch)
+    fake_runtime(monkeypatch, lambda: fresh_evaluation_artifact("model_fx_report.json", report()),
+                 output_name="burden")
+    assert screen.main(args) == 0
+    result = json.loads((tmp_path / "out/screen.json").read_text(encoding="utf-8"))
+    assert result["purpose"] == "trained_fp32_exact_graph_feasibility_only"
+    assert result["trained"] and result["model_id"] == 32783 and result["original_fp32_parity_pass"]
+    assert result["export_receipt_sha256"] == screen.sha256_file(tmp_path / "export.json")
+    assert result["original_fp32_parity_sha256"] == screen.sha256_file(tmp_path / "onnx_parity.csv")
+
+
+@pytest.mark.parametrize("original,replacement", [
+    ("n0,s0,1.0,1.0,True", "n0,s0,1.0,1.1,True"),
+    ("n0,s0,1.0,1.0,True", "n1,s1,1.0,1.0,True"),
+    ("n0,s0,1.0,1.0,True", "n0,s4,1.0,1.0,True"),
+])
+def test_changed_trained_parity_blocks_vendor(tmp_path, monkeypatch, original, replacement):
+    args = trained_inputs(tmp_path, monkeypatch)
+    parity = tmp_path / "onnx_parity.csv"
+    parity.write_text(parity.read_text().replace(original, replacement), encoding="utf-8")
+    monkeypatch.setitem(screen.TRAINED_PARITY_SHA256, ("resnet18", "fold_female_role"),
+                        screen.sha256_file(parity))
+    monkeypatch.setattr(screen, "_load_runtime", lambda: pytest.fail("Parity must gate the SDK"))
+    assert screen.main(args) == 3
+    result = json.loads((tmp_path / "out/screen.json").read_text(encoding="utf-8"))
+    assert not result["vendor_evaluation_completed"]
+    assert ("mobilenet_v2", "fold_male_1_role") not in screen.TRAINED_EXPORTS
 
 
 def test_complete_fake_sdk_flow_binds_fresh_result(tmp_path, monkeypatch):

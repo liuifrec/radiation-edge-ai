@@ -1,4 +1,4 @@
-"""Screen one complete, untrained NASA graph with the installed Kneron SDK.
+"""Screen one complete candidate or strict-parity trained NASA graph on the KL720 SDK.
 
 This file runs directly in the historical Python 3.7 toolchain container.  It
 does not import the application package, install packages, quantize, compile a
@@ -29,7 +29,7 @@ import time
 import traceback
 from collections import Counter
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 
 EXIT_CODES = {"supported": 0, "unsupported": 2, "unknown": 3}
@@ -38,7 +38,23 @@ ARTIFACT_NAMES = (
     "backtrace.log", "ioinfo.csv", "ProfileResult.txt", "ip_eval_prof.txt",
 )
 MODEL_NAMES = ("r1countnet_v1", "mobilenet_v2", "resnet18")
+# Export identities and model IDs from the November 18 trained-graph screen.
+# Each immutable export binds its checkpoint, training run, ONNX and calibration manifest.
+TRAINED_EXPORTS = {
+    ("mobilenet_v2", "fold_female_role"): ("40b89d4b349dfa4060e4fd62a31cf27647b6fb04c1bdef93b4f7b84165f32257", 32781),
+    ("mobilenet_v2", "fold_male_2_role"): ("bff39f471361a57f25c61d76b20570595348364afc70296e9dc959925814f192", 32782),
+    ("resnet18", "fold_female_role"): ("fc12dcf5be78d45b2c221257f4e1f70b5017982d16bec7af17bfe886fce07af5", 32783),
+    ("resnet18", "fold_male_1_role"): ("d41c6627bc31f3456e3292e02b453025c4301301cd1d8a042719fe4356b6a34a", 32784),
+    ("resnet18", "fold_male_2_role"): ("990032c6d2c318e42cb78d30eb5becb55defc338334cc2fd19822c9df6390a7e", 32785),
+}
 BOOKKEEPING_OPS = {"Identity", "Reshape", "Flatten", "Squeeze", "Unsqueeze"}
+TRAINED_PARITY_SHA256 = {
+    ("mobilenet_v2", "fold_female_role"): "bac5774a2038ca22fcc5d51c19d7587156901894792051502359e50247a31af4",
+    ("mobilenet_v2", "fold_male_2_role"): "b7f01de72833c46cffe467e3f7d163790782ee831254170b3442f8471ed0cb15",
+    ("resnet18", "fold_female_role"): "6c1f230cf9ee2335ae4a0432f4a0cbf891c780ea5aa0e9fcaaba467fa0196dd9",
+    ("resnet18", "fold_male_1_role"): "526f70aa7e0c9647e2ba2c264e24a39522883613e814e397eaacabc39e0e08fa",
+    ("resnet18", "fold_male_2_role"): "2a9fbd3874598dd269205922035e30eb44027e71d2b4c318238270bca438e60a",
+}
 SHAPE_OPS = BOOKKEEPING_OPS | {
     "Gather", "Slice", "Concat", "Cast", "Add", "Sub", "Mul", "Div",
 }
@@ -498,19 +514,65 @@ def _validate_manifest(path, source):
     return manifest
 
 
+def _validate_trained_export(path, source, receipt_hash, graph_hash):
+    export = json.loads(path.read_text(encoding="utf-8-sig"))
+    case = (export["architecture"], export["fold"])
+    if case not in TRAINED_EXPORTS or TRAINED_EXPORTS[case][0] != receipt_hash:
+        raise ValueError("Trained export is outside the five verified campaign exports")
+    if (export["parity_pass"] is not True or export["calibration_arrays"] != 192
+            or export["parity_atol"] != 1e-5 or export["parity_rtol"] != 1e-4
+            or export["dataset_role"] != "development_train_ptq_calibration"):
+        raise ValueError("Original strict 192-input training-source parity gate failed")
+    if (PureWindowsPath(export["onnx"]["path"]).name != source.name
+            or export["onnx"]["sha256"] != graph_hash):
+        raise ValueError("Trained ONNX differs from its strict export")
+    calibration = path.with_name("calibration_manifest.csv")
+    if sha256_file(calibration) != export["calibration"]["sha256"]:
+        raise ValueError("Calibration manifest differs from the strict export")
+    with calibration.open(encoding="utf-8-sig", newline="") as handle:
+        expected = {row["sample_id"]: row["source_name"] for row in csv.DictReader(handle)}
+    train = set(export["source_split"]["train_sources"])
+    if (len(expected) != 192 or set(expected.values()) != train
+            or train.intersection(export["source_split"]["test_sources"])):
+        raise ValueError("Calibration members differ from the training sources")
+    parity = path.with_name("onnx_parity.csv")
+    parity_hash = sha256_file(parity)
+    if parity_hash != TRAINED_PARITY_SHA256[case]:
+        raise ValueError("Parity table differs from the frozen trained export")
+    with parity.open(encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle):
+            if expected.pop(row["sample_id"], None) != row["source_name"]:
+                raise ValueError("Unmatched parity sample identity")
+            reference, actual = float(row["pytorch"]), float(row["onnx"])
+            # The original exporter uses np.allclose(pytorch, onnx, atol, rtol).
+            if (row["parity_pass"] != "True" or not all(map(math.isfinite, (reference, actual)))
+                    or abs(reference - actual) > 1e-5 + 1e-4 * abs(actual)):
+                raise ValueError("Failed strict PyTorch/ONNX parity for {}".format(row["sample_id"]))
+    if expected or sha256_file(parity) != parity_hash:
+        raise ValueError("Incomplete or changed parity evidence")
+    return {"architecture": case[0], "fold": case[1], "model_id": TRAINED_EXPORTS[case][1],
+            "training_run_sha256": export["training_run"]["sha256"],
+            "checkpoint_sha256": export["checkpoint"]["sha256"],
+            "calibration_manifest_sha256": export["calibration"]["sha256"],
+            "original_fp32_parity_pass": True, "original_fp32_parity_sha256": parity_hash}
+
+
 def run_screen(args):
     output = Path(args.out).resolve()
     output.mkdir(parents=True, exist_ok=False)
     work = output / "work"
     work.mkdir()
     source = Path(args.input).resolve()
-    manifest_path = Path(args.candidate_manifest).resolve()
+    trained = bool(getattr(args, "trained_export", None))
+    manifest_path = Path(args.trained_export if trained else args.candidate_manifest).resolve()
+    manifest_digest = "export_receipt_sha256" if trained else "candidate_manifest_sha256"
     report = {
         "schema_version": 1, "created_utc": datetime.now(timezone.utc).isoformat(),
-        "purpose": "architecture_feasibility_only", "trained": False,
+        "purpose": "trained_fp32_exact_graph_feasibility_only" if trained else "architecture_feasibility_only",
+        "trained": trained,
         "platform": args.platform, "model_id": args.model_id, "model_version": args.model_version,
         "architecture": None, "support_status": "unknown", "reasons": [],
-        "source_onnx_sha256": None, "candidate_manifest_sha256": None,
+        "source_onnx_sha256": None, manifest_digest: None,
         "source_script_sha256": sha256_file(Path(__file__).resolve()),
         "toolchain_image_id": args.toolchain_image_id,
         "python_version": platform.python_version(), "python_executable": sys.executable,
@@ -526,12 +588,20 @@ def run_screen(args):
     started = time.monotonic()
     try:
         report["source_onnx_sha256"] = sha256_file(source)
-        report["candidate_manifest_sha256"] = sha256_file(manifest_path)
-        manifest = _validate_manifest(manifest_path, source)
-        report["architecture"] = manifest["architecture"]
+        report[manifest_digest] = sha256_file(manifest_path)
+        if trained:
+            report.update(_validate_trained_export(manifest_path, source, report[manifest_digest],
+                                                   report["source_onnx_sha256"]))
+            if args.toolchain_image_id != "sha256:2207d99c9f78deef90647a3da3047ec3f7942ec689385a586fee476f77e89041":
+                raise ValueError("Trained export requires the pinned campaign image")
+            if args.model_id is not None and report["model_id"] != args.model_id:
+                raise ValueError("Model ID differs from the trained campaign")
+        else:
+            manifest = _validate_manifest(manifest_path, source)
+            report["architecture"] = manifest["architecture"]
         if args.platform != "720":
             raise ValueError("This adapter recognizes KL720 evidence only")
-        if args.model_id <= 32768 or not re.fullmatch(r"[0-9a-fA-F]{4}", args.model_version):
+        if report["model_id"] <= 32768 or not re.fullmatch(r"[0-9a-fA-F]{4}", args.model_version):
             raise ValueError("Custom model ID must exceed 32768; version must be four hex digits")
         with _vendor_log(vendor_path):
             os.chdir(str(work))
@@ -558,6 +628,9 @@ def run_screen(args):
                         or len(before_graph["outputs"]) != 1 or before_graph["outputs"][0]["shape"] != [1]):
                     raise ValueError("Source graph does not implement the full NASA input/scalar-output contract")
                 report["original_graph"] = before_graph
+                if trained and (before_graph["inputs"][0]["name"] != "input"
+                                or before_graph["outputs"][0]["name"] != "burden"):
+                    raise ValueError("Trained graph has an unexpected tensor name")
                 if optimizer is not None:
                     model = optimizer.optimize(model)
                     report["optimizer_backend"] = "kneronnxopt.optimize"
@@ -584,7 +657,7 @@ def run_screen(args):
                 try:
                     with _vendor_log(evaluation_path):
                         try:
-                            config = ktc.ModelConfig(args.model_id, args.model_version, args.platform, onnx_model=model)
+                            config = ktc.ModelConfig(report["model_id"], args.model_version, args.platform, onnx_model=model)
                             evaluation_value = config.evaluate()
                             evaluation = "" if evaluation_value is None else str(evaluation_value)
                             print(evaluation)
@@ -620,10 +693,14 @@ def run_screen(args):
     # the same final immutability check.
     try:
         if (sha256_file(source) != report["source_onnx_sha256"]
-                or sha256_file(manifest_path) != report["candidate_manifest_sha256"]):
+                or sha256_file(manifest_path) != report[manifest_digest]):
             raise RuntimeError("Source graph or candidate manifest changed during screening")
         if report.get("optimized_onnx_sha256") and sha256_file(output / "optimized.onnx") != report["optimized_onnx_sha256"]:
             raise RuntimeError("Optimized graph changed during screening")
+        if trained and report.get("original_fp32_parity_pass"):
+            if (sha256_file(manifest_path.with_name("calibration_manifest.csv")) != report["calibration_manifest_sha256"]
+                    or sha256_file(manifest_path.with_name("onnx_parity.csv")) != report["original_fp32_parity_sha256"]):
+                raise RuntimeError("Trained export calibration or parity evidence changed during screening")
     except Exception as exc:
         report.update(support_status="unknown", reasons=["input_identity_changed_or_unavailable"],
                       error="{}: {}".format(type(exc).__name__, exc))
@@ -639,18 +716,22 @@ def run_screen(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input")
-    parser.add_argument("--candidate-manifest")
+    provenance = parser.add_mutually_exclusive_group()
+    provenance.add_argument("--candidate-manifest")
+    provenance.add_argument("--trained-export", help="Frozen campaign export.json beside its calibration and parity CSVs")
     parser.add_argument("--out", required=True,
                         help="New screen output directory, or new JSON file for --probe-runtime")
     parser.add_argument("--probe-runtime", action="store_true",
                         help="Check installed SDK imports and APIs without evaluating a model")
     parser.add_argument("--platform", default="720")
-    parser.add_argument("--model-id", type=int, default=32771)
+    parser.add_argument("--model-id", type=int, help="Defaults to the campaign model ID for trained exports or 32771 for candidates")
     parser.add_argument("--model-version", default="0001")
     parser.add_argument("--toolchain-image-id", default=None)
     args = parser.parse_args(argv)
-    if not args.probe_runtime and (not args.input or not args.candidate_manifest):
-        parser.error("--input and --candidate-manifest are required for model screening")
+    if args.model_id is None and not args.trained_export:
+        args.model_id = 32771
+    if not args.probe_runtime and (not args.input or not (args.trained_export or args.candidate_manifest)):
+        parser.error("Model screening requires --input and either --candidate-manifest or --trained-export")
     try:
         if args.probe_runtime:
             return probe_runtime(args)

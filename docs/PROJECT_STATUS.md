@@ -41,7 +41,7 @@ manual annotations or NASA references identifies task performance.
 | DNAi v3 | Repeated 27-window physical replays and downstream reproduction reported | Retain as the physical DNA-fiber reference; three-field characterization is not broad human-ground-truth validation | [E04](PROGRESS_EVIDENCE_20261124.md#e04-dnai-reference-and-candidates) |
 | Spotiflow `general` | All 63 engineering inputs reportedly qualified on physical KL720 using the higher-precision deployment | Keep in the hardware-qualified collection; native NASA bag MAE remained 11.724 foci/nucleus, so NASA accuracy is not qualified | [E05](PROGRESS_EVIDENCE_20261124.md#e05-pretrained-native-screen), [E06](PROGRESS_EVIDENCE_20261124.md#e06-spotiflow-conversion-and-physical-qualification) |
 | New NASA MobileNetV2 | GPU training completed; eligible trained exports and vendor graph support reported; male-1 export excluded | Promising development performance; no completed new physical NASA qualification | [E02](PROGRESS_EVIDENCE_20261124.md#e02-three-model-nasa-campaign) |
-| New NASA ResNet18 | Trained graphs supported; female-fold BIE generated and evaluated | Two of eight frozen deployment criteria failed; no qualified NEF or physical rollout; bias adjustment did not advance | [E03](PROGRESS_EVIDENCE_20261124.md#e03-resnet18-ptq-and-training-diagnostics) |
+| New NASA ResNet18 | Offline recovery re-ran both FP32 graphs on all 192 original training inputs and re-scored 2,400 archived BIE outputs | Six of eight frozen limits passed. Mean and maximum absolute bag shifts failed. The female-fold BIE remains ineligible for NEF compilation. | [Recovery and replay](NASA_POC_PTQ_RECOVERY.md) |
 | DNAi v4 / v5 | V4 physical characterization reported; v5 conversion and diagnostic results retained | Grader-supported losses remain; both experimental, with v3 retained | [E04](PROGRESS_EVIDENCE_20261124.md#e04-dnai-reference-and-candidates) |
 | Spotiflow `synth_complex` | Six of 63 original ONNX cases exceeded the frozen raw-output tolerance | Conversion blocked; preserved spot counts do not override the failed raw-output gate | [E06](PROGRESS_EVIDENCE_20261124.md#e06-spotiflow-conversion-and-physical-qualification) |
 | Perilipin2 | Full-model compiler DMA failure persists after isolated probes and a split projection | Experimental; no complete KL720 deployment | [E07](PROGRESS_EVIDENCE_20261124.md#e07-other-microscopy-workstreams) |
@@ -68,7 +68,7 @@ Those launchers and the newer pretrained-model registry are present in the
 recovered source but **not yet integrated into main**. Their names identify integration targets,
 not commands a new clone can currently execute.
 
-The inspected base still has these implementation gaps:
+The list below tracks integration gaps recorded at the PR #35 base. The recovered NASA PTQ reader now verifies both legacy Windows and portable calibration paths against their original hashes. [NASA recovery and commands](NASA_POC_PTQ_RECOVERY.md)
 
 - The unified NASA batch adapter supports `cpu-onnx`; historical physical NASA
   inference uses a dedicated runner that loads its model once.
