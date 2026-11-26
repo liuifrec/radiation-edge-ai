@@ -67,9 +67,11 @@ integration release receives a new identity.
 | NASA application batch path | Add a resident KL720 batch adapter using the established physical runner behavior; avoid one process/model upload per nucleus |
 | Result reporting | Share provenance, timing and status fields while retaining assay-specific scores, points, masks and fiber measurements |
 
-Public `main` currently has a CPU-only high-level NASA batch path and a generic
-KL720 worker with INT8 input packing and one output. These are integration gaps,
-not evidence that the investigator's later physical runs failed.
+The high-level NASA batch adapter still uses CPU ONNX. The recovered worker
+also supports Spotiflow's signed higher-precision transport, named heatmap and
+flow outputs, and opt-in device replay. One fixed-size crop is the supported
+unit. Cross-tile stitching and duplicate suppression await independent tests.
+[Spotiflow runtime](SPOTIFLOW_RUNTIME_RECOVERY.md)
 
 Review source and committed history for the intended release content and
 third-party terms. Keep model binaries and microscopy data in their designated
@@ -125,6 +127,9 @@ fold coverage before reporting pooled physical out-of-fold performance. Keep
 the historical holdout locked against new model selection and use genuinely
 unused sources or acquisitions for independent confirmation.
 
-The Perilipin2, GUI and Track A PRs are now merged. Their experimental model
-dispositions remain unchanged. The next integration focuses on the recovered
-registry, qualified transport and reference replay commands.
+The Perilipin2, GUI and Track A PRs are merged. With catalogue discovery and
+Spotiflow transport recovered, replay the physical reference commands from the
+reviewed source on a configured host. A fresh replay records its own input and
+model hashes, signed and decoded outputs, spot coordinates, counts and timings.
+Prioritize training-source ResNet18 extractor diagnostics, then DNAi tract
+continuity against human annotations and the Perilipin2 full-graph compiler boundary.
