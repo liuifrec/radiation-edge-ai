@@ -335,6 +335,21 @@ def vendor_model(path):
     return model
 
 
+def standard_int8_report(directory, bie_sha):
+    """Check the SDK's actual reported precision and link its output to the selected BIE."""
+    directory = Path(directory)
+    path = directory / 'model_fx_report.json'
+    report = load_json(path)
+    widths = {key: report['kdp720/' + key + ' bitwidth'] for key in
+              ('input', 'output', 'cpu', 'datapath', 'weight')}
+    require(set(widths.values()) == {'int8'}, 'Vendor report differs from the standard INT8 settings')
+    require(report['kdp720/bie'] == 'input.kdp720.scaled.bie'
+            and sha256(directory / 'input.kdp720.scaled.bie') == bie_sha,
+            'INT8 report has a different BIE output')
+    return {'vendor_fx_report_sha256': sha256(path), 'bie_sha256': bie_sha, 'bitwidths': widths,
+            'reported_toolchain': report['docker_version']}
+
+
 def run(args):
     case = trained_case(args)
     output = Path(args.out).resolve()

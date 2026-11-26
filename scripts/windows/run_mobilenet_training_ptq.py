@@ -70,14 +70,16 @@ def quantize(root, out):
         implementation = out / "workers"
         implementation.mkdir()
         for name in ("multimodel_ptq.py", "multimodel_bie_inference.py",
-                     "multimodel_training_bie_pilot.py"):
+                     "multimodel_training_bie_pilot.py", "multimodel_qualification.py", "deployment_cohort.py"):
             shutil.copyfile(Path(ptq.__file__).with_name(name), implementation / name)
         policy.update(sources, host_script_sha256=ptq.sha256(__file__),
                       source_onnx_sha256=ptq.sha256(graph), export_json_sha256=ptq.sha256(directory / "export.json"),
                       screen_json_sha256=ptq.sha256(vendor),
                       worker_sha256=ptq.sha256(implementation / "multimodel_ptq.py"),
                       pilot_worker_sha256=ptq.sha256(implementation / "multimodel_training_bie_pilot.py"),
-                      fixed_inference_worker_sha256=ptq.sha256(implementation / "multimodel_bie_inference.py"))
+                      fixed_inference_worker_sha256=ptq.sha256(implementation / "multimodel_bie_inference.py"),
+                      dependency_sha256={name: ptq.sha256(implementation / name) for name in
+                                         ("multimodel_qualification.py", "deployment_cohort.py")})
         check = SimpleNamespace(architecture=ARCH, onnx=graph, optimized=vendor.with_name("optimized.onnx"),
                                 manifest=directory / "calibration_manifest.csv", calibration_root=directory,
                                 export=directory / "export.json", screen=vendor, image_id=ptq.IMAGE_ID,
@@ -107,6 +109,7 @@ def quantize(root, out):
                     "PTQ output identity mismatch")
         policy.update(status=record["status"], bie_sha256=bie_hash, bie_generated=True,
                       worker_report_sha256=ptq.sha256(result_path), ptq_worker_exit_code=0)
+        policy["precision"] = ptq.standard_int8_report(out / "kneron_flow", bie_hash)
     except Exception as exc:
         policy.update(status="FAILED", error=str(exc))
         raise
@@ -124,8 +127,16 @@ def characterize(root, out):
                       ("multimodel_training_bie_pilot.py", "pilot_worker_sha256"),
                       ("multimodel_bie_inference.py", "fixed_inference_worker_sha256")):
         ptq.require(ptq.sha256(out / "workers" / name) == receipt[key], "Changed training pilot implementation")
+    # The first run's standalone fixed simulator had no qualification/cohort imports.
+    for name in ("multimodel_qualification.py", "deployment_cohort.py"):
+        path = out / "workers" / name
+        expected = receipt.get("dependency_sha256", {}).get(name)
+        if expected or path.exists():
+            ptq.require(expected and ptq.sha256(path) == expected, "Changed fixed simulator dependency")
     pilot = out / "training_pilot"
     pilot.mkdir(exist_ok=False)
+    precision = ptq.standard_int8_report(out / "kneron_flow", receipt["bie_sha256"])
+    ptq.save_json(pilot / "precision_receipt.json", precision)
     docker_run(pilot / "docker.log", [(out / "workers", "/worker"), (directory, "/inputs"),
                (out, "/ptq"), (pilot, "/pilot", True)], ["/worker/multimodel_training_bie_pilot.py",
                "--inputs", "/inputs", "--ptq", "/ptq", "--out", "/pilot"], "/pilot")

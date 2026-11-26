@@ -172,6 +172,24 @@ def test_training_characterization_is_source_balanced_and_outcome_blind():
         training_pilot.panel(rows)
 
 
+def test_standard_recipe_requires_actual_vendor_widths_and_the_same_bie(tmp_path):
+    bie = tmp_path / "input.kdp720.scaled.bie"
+    bie.write_bytes(b"test artifact")
+    expected = ptq.sha256(bie)
+    path = tmp_path / "model_fx_report.json"
+    report = {"kdp720/" + key + " bitwidth": "int8" for key in
+              ("input", "output", "cpu", "datapath", "weight")}
+    report.update({"kdp720/bie": bie.name, "docker_version": "fixture"})
+    path.write_text(json.dumps(report))
+    assert ptq.standard_int8_report(tmp_path, expected)["vendor_fx_report_sha256"] == ptq.sha256(path)
+    with pytest.raises(ValueError, match="different BIE"):
+        ptq.standard_int8_report(tmp_path, "0" * 64)
+    report["kdp720/datapath bitwidth"] = "int16"
+    path.write_text(json.dumps(report))
+    with pytest.raises(ValueError, match="standard INT8"):
+        ptq.standard_int8_report(tmp_path, expected)
+
+
 @pytest.mark.parametrize("shift", [0, 0.01])
 def test_192_sample_parity_controls_vendor_gate(pilot, monkeypatch, shift):
     args, rows, _ = pilot
