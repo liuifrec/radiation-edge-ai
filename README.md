@@ -21,6 +21,7 @@ locally without CUDA or cloud inference.
 | [Project charter](docs/PROJECT_CHARTER.md) | NASA priority, reusable model collection and prospective research scope |
 | [NASA local NPU quickstart](docs/NASA_LOCAL_NPU_QUICKSTART.md) | Commands implemented here for baseline replay, screening and training/export |
 | [DNA-fiber v3 KL720 replay](docs/DNAI_V3_KL720_REPLAY.md) | Verify the archived three-field baseline offline or explicitly run its 27-window physical batch |
+| [Model and backend selection](docs/PLATFORM_DEPLOYMENT_SELECTION.md) | Browse the cross-assay catalogue and select an existing reference runner from the desktop |
 
 ## Current checkpoint — 2026-11-24
 
