@@ -175,6 +175,23 @@ def test_duplicate_catalogue_keys_and_versions_fail_closed(tmp_path):
             registry.catalogue_summary(catalog=path)
 
 
+@pytest.mark.parametrize("threshold", [0, 1])
+def test_registry_rejects_thresholds_the_host_decoder_cannot_apply(tmp_path, threshold):
+    tree = json.loads(registry.CATALOG.read_bytes())
+    tree["models"]["spotiflow/general"]["threshold"] = threshold
+    path = tmp_path / "catalogue.json"
+    path.write_text(json.dumps(tree), encoding="utf8")
+    with pytest.raises(ValueError, match="threshold"):
+        registry.model_record("spotiflow/general", catalog=path)
+
+
+def test_tracked_gate_file_matches_original_lf_policy_bytes():
+    original = "21335fb5b86e0c391c23cd827f32b0fd089474f80b482e3c0d80d477b7c4beb8"
+    provenance = model_record("spotiflow/general")["provenance"]
+    file = Path(__file__).resolve().parents[1] / provenance["engineering_gate"]
+    assert hashlib.sha256(file.read_bytes()).hexdigest() == provenance["gate_lf_sha256"] == original
+
+
 @pytest.mark.parametrize("problem,expected", [
     ("bad_sha", "SHA256"), ("conflicting_path", "Ambiguous"), ("unknown_evidence", "evidence"),
     ("imagined_stage", "status"), ("physical_only", "prerequisite"), ("release_override", "released weights"),

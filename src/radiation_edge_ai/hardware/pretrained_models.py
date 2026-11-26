@@ -108,7 +108,7 @@ def _validate_record(record):
         if (result["status"] in {"passed", "failed"} or "evidence" in result) and result.get("evidence") not in artifacts:
             raise ValueError(f"Missing registered evidence for {stage}")
     if (not isinstance(record["threshold"], (int, float)) or isinstance(record["threshold"], bool)
-            or not math.isfinite(record["threshold"]) or not 0 <= record["threshold"] <= 1):
+            or not math.isfinite(record["threshold"]) or not 0 < record["threshold"] < 1):
         raise ValueError("Invalid released spot threshold")
     if stages["physical_kl720"]["status"] == "passed" and any(
         stages[stage]["status"] != "passed" for stage in NEF_PREREQUISITES
