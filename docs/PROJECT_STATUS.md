@@ -65,16 +65,20 @@ Both require the documented external artifacts and runtime environments.
 The pretrained catalogue covers both released Spotiflow checkpoints. NASA R1
 v2 and DNAi v3 retain their assay-specific commands. The desktop catalogue
 action can inspect historical status and local artifact availability before
-either scientific libraries or PLUS are installed. Spotiflow runtime integration
-and the later DNAi baseline launcher are separate from catalogue discovery.
+either scientific libraries or PLUS are installed. The Spotiflow CLI runs a
+single two-dimensional crop using an explicit backend. The Windows launcher
+provides offline preflight, archived simulator decoding and opt-in physical
+smoke and panel modes. The frozen contract accepts 113–128 pixels per axis.
+Larger fields need separate tiling and duplicate-handling evidence.
+[Runtime and replay guide](SPOTIFLOW_RUNTIME_RECOVERY.md)
 
 The inspected base still has these implementation gaps:
 
 - The unified NASA batch adapter supports `cpu-onnx`; historical physical NASA
   inference uses a dedicated runner that loads its model once.
-- The generic KL720 worker packs INT8 inputs and requires a single output.
-  The reported Spotiflow path needs the qualified higher-precision packing and
-  two-output decoding implementation.
+- The KL720 worker retains the single-output INT8 route and adds the registered
+  Spotiflow higher-precision input and two output heads. Only the
+  `general/full_int16_transport` variant is eligible for the Spotiflow USB launcher.
 - New trained exports now serialize calibration filenames with portable forward
   slashes. Reading existing frozen Windows manifests remains a separate import.
 - Existing assay registrations and architecture candidates retain their own
@@ -86,7 +90,7 @@ actual local source and evidence without reconstructing it from console text.
 
 ## Software and freeze status
 
-At the current published base, [GitHub CI](https://github.com/liuifrec/radiation-edge-ai/actions/runs/45304236354)
+At the November 24 base, [GitHub CI](https://github.com/liuifrec/radiation-edge-ai/actions/runs/45304236354)
 passed all six jobs, including native Windows NASA and desktop checks. During
 PR #26/#27 integration, the identical combined tree passed **484 tests**, with
 **34 skips** requiring Windows or the external frozen Track A archive.

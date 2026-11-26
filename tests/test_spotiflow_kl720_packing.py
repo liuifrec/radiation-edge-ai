@@ -65,3 +65,22 @@ def test_distinct_descriptor_shapes_identify_independently_quantized_heads():
     for wrong in (None, [1, 1], [4]):
         with pytest.raises(RuntimeError):
             output_order(shapes, wrong)
+
+
+def test_signed_input_matches_validated_sdk_high_low_lane_order():
+    layouts = SimpleNamespace(KP_MODEL_TENSOR_DATA_LAYOUT_4W4C8B=1, KP_MODEL_TENSOR_DATA_LAYOUT_1W16C8B=2,
+                              KP_MODEL_TENSOR_DATA_LAYOUT_16W1C8B=3, KP_MODEL_TENSOR_DATA_LAYOUT_1W16C8BHL=6)
+    kp = SimpleNamespace(ModelTensorDataLayout=layouts)
+    words = np.array([[4661, -1, 40000], [-40000, 3.5, 2.5]], np.float32)[None, None]
+    quant = SimpleNamespace(v1=SimpleNamespace(quantized_fixed_point_descriptor_list=[SimpleNamespace(radix=0, scale=1.)]))
+    info = SimpleNamespace(v1=SimpleNamespace(shape_npu=words.shape))
+    node = SimpleNamespace(data_layout=6, tensor_shape_info=info, quantization_parameters=quant)
+    data, metadata = pack_kl720_input(kp, node, words)
+    expected = bytearray(6 * 32)
+    for pixel, (lo, hi) in enumerate(((26, 18), (127, 255), (127, 127), (0, 128), (2, 0), (1, 0))):
+        expected[32*pixel], expected[32*pixel+16] = lo, hi
+    assert data == expected
+    assert metadata['layout'] == '1W16C8BHL' and metadata['buffer_bytes'] == 192
+    node.tensor_shape_info = SimpleNamespace(v2=SimpleNamespace(shape=words.shape))
+    with pytest.raises(RuntimeError, match='KL720 V1'):
+        pack_kl720_input(kp, node, words)
