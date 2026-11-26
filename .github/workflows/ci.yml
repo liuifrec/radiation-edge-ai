@@ -5,9 +5,8 @@ on:
     branches:
       - main
       - 'feature/**'
+  # Test stacked pull requests against the implementation they actually depend on.
   pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -41,6 +40,18 @@ jobs:
 
       - name: Check installed dependencies
         run: python -m pip check
+
+      - name: Exercise the catalogue from an installed wheel
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          python -m pip wheel --no-deps --wheel-dir wheels "$GITHUB_WORKSPACE"
+          python -m venv catalog-env
+          catalog-env/bin/python -m pip install wheels/*.whl
+          catalog-env/bin/python -m pip check
+          catalog-env/bin/radedge-models --list > listing.json
+          catalog-env/bin/python -c "import json; assert json.load(open('listing.json'))['models']"
 
       - name: Compile Python files
         run: python -m compileall -q src tests

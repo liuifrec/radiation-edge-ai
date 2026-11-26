@@ -18,6 +18,7 @@ from radiation_edge_ai.desktop_runtime import Settings, build_job, run_job
 
 LABELS = {
     "Environment check (read only)": "doctor",
+    "List pretrained models and local artifacts": "pretrained-models",
     "Scan KL720 (no model load)": "device-scan",
     "Run frozen plan (CPU or KL720)": "run-plan",
     "Run assay manifest": "run-assay",

@@ -12,18 +12,34 @@ their provenance and limitations. This makes the successful deployments,
 failed candidates and next decisions discoverable in one place.
 
 The later Windows implementation was recovered from the investigator's verified
-Git bundle on November 26. The current published integration base is
+Git bundle on November 26. The initial published integration base was
 `4881cd914c50da03a30ca35b5be15a9c76db6a18`. The frozen Windows milestone is
 `fa5047fd20c104de98f62ad39641a17fee1489dc` on
 `codex/spotiflow-nef-output-representation`, with the local annotated tag
 `poc-kl720-multimodel-2026-11-20`. Both recovered targets were verified; see the
 [source recovery record](WINDOWS_POC_SOURCE_RECOVERY_20261126.md).
 
-The first small integration imports the original NASA calibration-path export
-fix and its regression assertion, with a native Windows CI export check. The
-registry, Spotiflow worker, PTQ readers and physical replay launchers remain
-pending. Their source is now inspectable; external artifact hashes and physical
-measurements in the ledger still describe investigator reports.
+PR #35 merged at `0b0393c1adff5edc40c8e09c43a6ad0a73a77194`. It covers portable
+calibration filenames for **new** exports and three trained Windows ONNX export
+regressions. The six CI jobs on its head passed. [PR #35](https://github.com/liuifrec/radiation-edge-ai/pull/35)
+
+### Recovered source and dependencies
+
+The November 26 comparison used that merge and the frozen tag above. Their
+common ancestor is `21042ddb3b2a7cf2a4d5d6aa8bff30289eaa5f36`. The trees
+differ at 236 paths. Importing the entire older tree would remove newer desktop
+and Perilipin2 code. The bundle's SHA256, 98 refs, tag object and peeled commit
+were rechecked before extracting individual components.
+
+| Source in the November 20 tree | Dependency and integration boundary |
+| --- | --- |
+| `hardware/pretrained_models.json`, `pretrained_models.py`, `spotiflow_transport.py` | The catalogue supplies checkpoint/variant identities and separates engineering and scientific decisions. The read-only CLI and desktop listing work without the SDK. Authenticating a NEF also needs upstream gates, the correct panel and the external receipt files. |
+| `hardware/spotiflow.py`, `pretrained_infer.py`, `_kl720_worker.py`, resident and smoke launchers | Execution depends on the catalogue, original host spot decoder, per-head signed transport and exact input packing. Mocked USB verifies software contracts. Physical verification requires an explicit hardware run. |
+| `nasa_bps/multimodel_ptq.py`, BIE inference/preparation/comparison modules and V1 protocols | Trained export is upstream of PTQ. Calibration is training-only; the numerical decision also requires the fixed-point engine, matched identities, all paired development predictions and the frozen margins. NASA R1 v2 keeps its dedicated physical runner. |
+| DNAi replay, simulator probes, decoder isolation and activation diagnostics | Frozen controls and failed experiments have distinct roles. V3 is the physical fiber reference. Exploratory v4/v5, NASA bias probes and isolated Perilipin2 operators cannot authorize a new model. |
+
+The capability matrix records the routes exposed in this checkout and the
+evidence required to use each. [Model and assay status](PROJECT_STATUS.md#model-and-assay-status)
 
 ## 1. Source recovery completed; integrate reviewed changes
 

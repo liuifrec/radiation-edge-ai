@@ -16,18 +16,18 @@ applications; they do not establish RERF assay validation or flight readiness.
 
 Two evidence sources are deliberately separate:
 
-- **Repository inspection:** current published base
-  `4881cd914c50da03a30ca35b5be15a9c76db6a18` includes merged PRs #26 and #27.
+- **Repository inspection:** integration starts at PR #35's merge
+  `0b0393c1adff5edc40c8e09c43a6ad0a73a77194`, which includes PRs #26 and #27.
   The November 20 source bundle was verified on November 26, including its
   frozen branch and tag target. See the [source recovery record](WINDOWS_POC_SOURCE_RECOVERY_20261126.md).
 - **Investigator reports:** the later Windows training, conversion, device and
   freeze results were supplied by the investigator. Their source at `fa5047f`
-  is now available for review. The external model binaries, image panels and
-  raw execution receipts have not been rehashed or rerun here.
+  is available for review. The receipt hashes identify the historical runs.
+  A fresh physical qualification requires a separately recorded replay.
 
-The first source integration imports the NASA calibration-filename export fix.
-The newer registry, transport and replay commands remain to integrate. Source
-recovery does not turn reported measurements into an independent hardware audit.
+The catalogue integration recovers the Spotiflow checkpoint and variant records
+and their original qualification chain. `radedge-models --list` and the desktop
+model-list action expose the collection using the host interpreter alone.
 
 ## Model and assay status
 
@@ -39,7 +39,7 @@ manual annotations or NASA references identifies task performance.
 | --- | --- | --- | --- |
 | NASA R1 v2 / R1CountNetV1 | Historical physical validation is recorded in the repository; a fresh 2,058-nucleus replay was reported | Original seven biological-fidelity criteria passed within the documented cohort; retain as the NASA reference | [E01](PROGRESS_EVIDENCE_20261124.md#e01-nasa-r1-v2) |
 | DNAi v3 | Repeated 27-window physical replays and downstream reproduction reported | Retain as the physical DNA-fiber reference; three-field characterization is not broad human-ground-truth validation | [E04](PROGRESS_EVIDENCE_20261124.md#e04-dnai-reference-and-candidates) |
-| Spotiflow `general` | All 63 engineering inputs reportedly qualified on physical KL720 using the higher-precision deployment | Keep in the hardware-qualified collection; native NASA bag MAE remained 11.724 foci/nucleus, so NASA accuracy is not qualified | [E05](PROGRESS_EVIDENCE_20261124.md#e05-pretrained-native-screen), [E06](PROGRESS_EVIDENCE_20261124.md#e06-spotiflow-conversion-and-physical-qualification) |
+| Spotiflow `general` | Archived physical receipt for all 63 engineering inputs verified offline against the qualified higher-precision NEF and input identities | Hardware-qualified for this configuration. Native NASA bag MAE was 11.724 foci/nucleus. NASA biological accuracy remains unqualified. | [E05](PROGRESS_EVIDENCE_20261124.md#e05-pretrained-native-screen), [E06](PROGRESS_EVIDENCE_20261124.md#e06-spotiflow-conversion-and-physical-qualification) |
 | New NASA MobileNetV2 | GPU training completed; eligible trained exports and vendor graph support reported; male-1 export excluded | Promising development performance; no completed new physical NASA qualification | [E02](PROGRESS_EVIDENCE_20261124.md#e02-three-model-nasa-campaign) |
 | New NASA ResNet18 | Trained graphs supported; female-fold BIE generated and evaluated | Two of eight frozen deployment criteria failed; no qualified NEF or physical rollout; bias adjustment did not advance | [E03](PROGRESS_EVIDENCE_20261124.md#e03-resnet18-ptq-and-training-diagnostics) |
 | DNAi v4 / v5 | V4 physical characterization reported; v5 conversion and diagnostic results retained | Grader-supported losses remain; both experimental, with v3 retained | [E04](PROGRESS_EVIDENCE_20261124.md#e04-dnai-reference-and-candidates) |
@@ -62,11 +62,11 @@ Perilipin2 Track A analysis/QC and compiler-isolation tooling. Start with the [N
 and the [historical unified release guide](UNIFIED_KL720_V0_11_RELEASE.md).
 Both require the documented external artifacts and runtime environments.
 
-The newer commands `run_spotiflow_kl720.ps1 -Smoke` and
-`run_dnai_hardware_baseline.py` were reported from the local Windows branch.
-Those launchers and the newer pretrained-model registry are present in the
-recovered source but **not yet integrated into main**. Their names identify integration targets,
-not commands a new clone can currently execute.
+The pretrained catalogue covers both released Spotiflow checkpoints. NASA R1
+v2 and DNAi v3 retain their assay-specific commands. The desktop catalogue
+action can inspect historical status and local artifact availability before
+either scientific libraries or PLUS are installed. Spotiflow runtime integration
+and the later DNAi baseline launcher are separate from catalogue discovery.
 
 The inspected base still has these implementation gaps:
 
@@ -77,8 +77,9 @@ The inspected base still has these implementation gaps:
   two-output decoding implementation.
 - New trained exports now serialize calibration filenames with portable forward
   slashes. Reading existing frozen Windows manifests remains a separate import.
-- Architecture construction, assay registration and qualified deployment
-  identities are not yet joined into the reported local model catalogue.
+- Existing assay registrations and architecture candidates retain their own
+  contracts. A selectable architecture or desktop assay does not qualify a
+  checkpoint for the pretrained collection.
 
 The [integration plan](POC_INTEGRATION_PLAN.md) describes how to bring in the
 actual local source and evidence without reconstructing it from console text.

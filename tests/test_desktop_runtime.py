@@ -40,6 +40,22 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(job.argv[-2:], ("doctor", "--json"))
         self.assertFalse(job.hardware_requested)
 
+    def test_pretrained_catalogue_runs_without_a_device_or_scientific_runtime(self):
+        from radiation_edge_ai.desktop import LABELS
+
+        repo = Path(__file__).resolve().parents[1]
+        cfg = replace(self.config, scientific_python="", kl720_python="")
+        job = build_job(cfg, repo, "pretrained-models")
+        self.assertIn(job.action, LABELS.values())
+        self.assertFalse(job.hardware_requested)
+        self.assertIsNone(job.backend)
+        self.assertIsNone(job.source)
+        self.assertEqual(job.argv[-3:], ("--list", "--data-root", str(self.data)))
+        saved = run_job(job, cfg, repo)
+        listing = json.loads((saved.parent / "console.txt").read_text(encoding="utf-8"))
+        self.assertTrue(listing["models"])
+        self.assertFalse((self.data / "models").exists())
+
     def test_scan_requires_plus_python_and_explicit_probe(self):
         with self.assertRaises((ValueError, FileNotFoundError)):
             build_job(replace(self.config, kl720_python=""), self.repo, "device-scan")
