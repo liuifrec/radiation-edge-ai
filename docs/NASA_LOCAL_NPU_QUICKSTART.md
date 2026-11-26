@@ -506,11 +506,9 @@ The export directory contains:
 - `calibration_manifest.csv` with per-array and source-image hashes;
 - `onnx_parity.csv` and `export.json` with the parity result and model identity.
 
-This completes the reusable FP32/export path. **INT8 quantization, full-model
-Kneron compilation, and physical execution of MobileNetV2/ResNet18 remain
-separate required steps.** The frozen-model replay launcher intentionally
-accepts only the already validated baseline NEF. It cannot substitute a new
-NEF and inherit the old model's accuracy result.
+This completes the reusable FP32/export path. The frozen-model USB launcher
+accepts the validated R1 v2 baseline NEF. Each additional model requires its
+own numerical and biological qualification records.
 
 ## Progress and next acceptance decision
 
@@ -520,17 +518,11 @@ interpreter. This is user-provided console evidence of architecture feasibility
 on the installed toolchain. The raw screening receipts and vendor artifacts
 remain on the Windows host and have not been independently retrieved here.
 
-The project now has one established NASA physical model, three
-feasibility-screened architecture definitions, and an implemented common
-training/export workflow. The new candidates still need NASA accuracy results,
-trained-graph checks, PTQ/BIE evaluation, NEF compilation and physical KL720
-execution. Synthetic software tests and early untrained-graph screening do not
-supply those results.
-
-Next, complete the real-data CPU smoke and resource review above, then run the
-[declared nine-model development campaign](NASA_THREE_MODEL_CAMPAIGN_V1.md).
-Its development advancement assessment is separate from accuracy qualification.
-Qualifying additional architectures requires declared reference-accuracy and
-deployment-degradation requirements plus paired FP32-to-physical evidence.
-Continue expanding the queue after these first candidates; three is not a
-project limit.
+The subsequent [nine-model development campaign](NASA_THREE_MODEL_CAMPAIGN_V1.md)
+produced five verified trained exports with archived KL720 screens. The
+ResNet18 female-fold BIE failed the frozen mean and maximum bag-difference
+limits. Its next experiment is extractor-bias diagnosis on training sources.
+The other four screened exports still require fold-specific PTQ and accuracy
+decisions before any NEF or physical execution. The
+[PTQ recovery guide](NASA_POC_PTQ_RECOVERY.md) identifies each fold, its
+available evidence and the command to reproduce the archived decision.
