@@ -21,7 +21,8 @@ ASSAYS = {
     "nasa-53bp1-r1-v2": "NASA 53BP1: latent burden, not an individual focus count.",
     "dnai-fiber-v3": "DNA fibers: physical execution exists; biological fidelity unvalidated.",
 }
-ACTIONS = ("doctor", "device-scan", "run-plan", "run-assay", "verify", "export", "tracka-reference")
+ACTIONS = ("doctor", "pretrained-models", "device-scan", "run-plan", "run-assay",
+           "verify", "export", "tracka-reference")
 CLI_ENTRY = "from radiation_edge_ai.cli import main; raise SystemExit(main())"
 
 
@@ -117,11 +118,14 @@ def build_job(settings: Settings, repo: Path, action: str,
     obj = {}
     assay = backend = out = None
     physical = False
-    if action not in ("doctor", "device-scan"):
+    if action not in ("doctor", "device-scan", "pretrained-models"):
         source_path = file_path(source, "JSON manifest or receipt")
         obj = read_object(source_path)
     if action == "doctor":
         command = prefix + ["doctor", "--json"]
+    elif action == "pretrained-models":
+        command = [str(host), "-u", "-m", "radiation_edge_ai.hardware.pretrained_models",
+                   "--list", "--data-root", str(root)]
     elif action == "device-scan":
         plus = file_path(settings.kl720_python, "existing Kneron PLUS Python")
         probe = repo / "src/radiation_edge_ai/hardware/kl720_check.py"

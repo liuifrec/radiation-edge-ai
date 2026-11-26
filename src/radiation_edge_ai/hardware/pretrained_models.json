@@ -1,0 +1,817 @@
+{
+  "schema_version": 1,
+  "families": {
+    "spotiflow_2d": {
+      "adapter": "radiation_edge_ai.hardware.spotiflow",
+      "contract": {
+        "assay": "2D fluorescence microscopy, including exploratory NASA 53BP1 screening",
+        "endpoint": "Subpixel spot coordinates (Y, X pixels), confidence and count per crop or labeled nucleus",
+        "architecture": "Spotiflow 2D slim U-Net with finest heatmap and stereographic flow heads",
+        "weight_release": "0.6.0",
+        "input": {"name": "input", "dtype": "float32", "layout": "NCHW", "shape": [1, 1, 128, 128]},
+        "crop_hw_range_px": [113, 128],
+        "preprocessing": "Released per-image percentile normalization, then centered reflection padding",
+        "outputs": {"layout": "NCHW", "spatial_hw": [128, 128], "channels": ["heatmap_logit", "raw_flow_0", "raw_flow_1", "raw_flow_2"]},
+        "postprocessing": "Sigmoid, L2 normalization, unpad, released peak threshold and subpixel refinement",
+        "tiling": "Single crop; multi-tile stitching and deduplication are unqualified"
+      },
+      "requirements": {
+        "native_runtime": "Spotiflow 0.6.5",
+        "target": "KL720",
+        "toolchain": "v0.33.1",
+        "toolchain_image_sha256": "2207d99c9f78deef90647a3da3047ec3f7942ec689385a586fee476f77e89041",
+        "qualified_device_runtime": "Kneron PLUS 3.2.0",
+        "qualified_firmware": "2.2.0-build.615"
+      },
+      "release_artifact_names": [
+        "archive",
+        "best.pt",
+        "config.yaml",
+        "thresholds.yaml"
+      ],
+      "provenance": {
+        "software": "https://github.com/weigertlab/spotiflow/tree/e82adb6c52c4192893bb7cf11f71f4caed560ed9",
+        "software_version": "0.6.5",
+        "weights": "https://github.com/weigertlab/spotiflow-models/releases/tag/0.6.0",
+        "model_repository_commit": "8c172716284ebd32c11ff23bf91e2b9b88e1a4fd",
+        "software_license": "BSD-3-Clause",
+        "weight_repository_license": "BSD-3-Clause",
+        "input": "One 2D fluorescence crop with native grid padded to 128x128",
+        "engineering_gate": "docs/SPOTIFLOW_KL720_ENGINEERING_GATES_V1.json",
+        "gate_lf_sha256": "21335fb5b86e0c391c23cd827f32b0fd089474f80b482e3c0d80d477b7c4beb8"
+      },
+      "artifacts": {
+        "software_license": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/software_provenance/LICENSE-spotiflow.txt",
+          "sha256": "d5858faee3bd0931785684cc6075ece5f189bbdd45c553a89a8069eb0d9079cd"
+        },
+        "weights_license": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/software_provenance/LICENSE-spotiflow-models.txt",
+          "sha256": "9857f5c2c9face13f29c7052723d9311df826116a2ed2c3d7be8d1f542622d89"
+        },
+        "native_receipt": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/native_panel_1200/native_receipt.json",
+          "sha256": "1076ef6473946816d958622f7b5c239d2cb4ec0c48b1ccd48cc280b39815682f"
+        },
+        "nasa_screen": {
+          "path": "scratch/nasa_pretrained_training_panel_20261119T0242Z/scoring/results.json",
+          "sha256": "c05e4076a1583309d47580ce339f87287afbd9b8d7626fbc6ddcd64cf3b00397"
+        },
+        "panel": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/panels/panel.json",
+          "sha256": "fd2eacd8d0101a7e227e8148668c535a9b75dd2b430429f2013ea887d2e35f35"
+        },
+        "device_discovery": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/device_discovery.json",
+          "sha256": "3b19a947a2a31a198b543db8df085d66c1c925bc640737fea40a9397e57c3bd2"
+        },
+        "usb_worker_v3_control": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/worker_dnai_v3_control/receipt.json",
+          "sha256": "027869ae41ecf78e6b1a2353d3159042abda5f20a7e15663b6eb65f26f736dd9"
+        },
+        "release_wheel": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/software_provenance/spotiflow-0.6.5-cp311-cp311-win_amd64.whl",
+          "sha256": "33537a340f389ec4315a6f14851927f9bc29321fb13241be6fd35bc4671870f9"
+        },
+        "release_dependencies": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/software_provenance/requirements.lock",
+          "sha256": "f12038d18f4967e5755a0fa8190021fe118ff9ec6434e60fab1bb9d0eb1bc577"
+        },
+        "usb_worker_v3_extended_packing_control": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/worker_dnai_v3_signed_packing_control/receipt.json",
+          "sha256": "c2a6470fe0aed881c27bdc5f1fbb3d56612bba9f05634e37d1cfd40e9255460f"
+        }
+      }
+    }
+  },
+  "models": {
+    "spotiflow/general": {
+      "default_variant": "joined_heads",
+      "family": "spotiflow_2d",
+      "checkpoint": "general",
+      "weight_url": "https://github.com/weigertlab/spotiflow-models/releases/download/0.6.0/general.zip",
+      "threshold": 0.49999999999999994,
+      "artifacts": {
+        "onnx": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports/general/model.onnx",
+          "sha256": "d2633233cc2e3383759115f6aed51836743454c29e7fb17157ed0ccc7a815374"
+        },
+        "export_receipt": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports/general/export.json",
+          "sha256": "717308e1ffc0c0e2bbbaeba89ba168c02ecbe5c82c1d9181da22ba7978d4fc8a"
+        },
+        "optimized_onnx": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/general/ip/optimized.onnx",
+          "sha256": "1feff874e042cc106ad954b536bc80b5b66930f532419d32421912d6a3d0a517"
+        },
+        "ip_receipt": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/general/ip/ip.json",
+          "sha256": "6a35f845a893d1fca70cc286a6fabfb10223aa72e55baf7c8cfa6cafe4a6d41f"
+        },
+        "archive": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/general.zip",
+          "sha256": "1da93a8282fedab697dbb9f5c24f623e452063b296ffaad9becd0afdc7bd2797"
+        },
+        "best.pt": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/general/best.pt",
+          "sha256": "1c3575464d621924b27f4deb66495b807f175a0ccd995d3533403f00daf806f2"
+        },
+        "config.yaml": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/general/config.yaml",
+          "sha256": "507b60fab22c08e8819da3f7c84d8a85b3fdce4caca14c18d101b502109b0649"
+        },
+        "thresholds.yaml": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/general/thresholds.yaml",
+          "sha256": "4c054d3cbb2825df7a4672a63ef454fbc25a7a01e53faefc431793068ac6367e"
+        },
+        "onnx_parity_receipt": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports/general/parity_native_bounds/receipt.json",
+          "sha256": "212a041940ac47fea69e5ecccace9475eede2d69548eb0ab64b4796d5f4dd7e8"
+        },
+        "optimized_parity_receipt": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/general/optimized_gate_native_bounds/receipt.json",
+          "sha256": "88eccf5ffa9b0d3b78e9fde3ddb08bd4860134bbffbb4e3494416fcab9388819"
+        },
+        "bie": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/general/quantize/model.bie",
+          "sha256": "ff7f9a340a0dd558312f3032417ae338df3e16c97b0d198e18155de0db9dd03c"
+        },
+        "ptq_receipt": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/general/quantize/ptq.json",
+          "sha256": "793ad7a7f65038371a6235015d20fc52b37a908e6ce0a4febdc3bffb11f15efd"
+        },
+        "head_ranges": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/general_calibration_head_ranges.json",
+          "sha256": "704579fa902914b3ea2ea1157c98af1513a7c08b5f8f43fac4a4a4e0e1a08b66"
+        },
+        "bie_outputs": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/general/bie_readout/outputs.json",
+          "sha256": "e32a7aee077e357d48a46c98403a7ad67e9730a0082aaa62ab8481e2d2263712"
+        },
+        "bie_gate": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/general/bie_gate/receipt.json",
+          "sha256": "28676cf692a8a2abd13477ed79f87aa19f6e17619bc051cb5e32d5feecd245f2"
+        },
+        "output_levels": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/general/bie_readout_levels.json",
+          "sha256": "ad0b7e825568743f1e5e88e93f51d6c7b25cf74295eaff5ed7813af5db202d62"
+        },
+        "head_substitution": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/general/bie_gate/head_substitution.json",
+          "sha256": "4a9a6e75b6d87ecd29148a59dacdf80f49605fb1ec52dac8dac7d9d0a699595e"
+        },
+        "terminal_rounding": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/general/bie_gate/calibration_terminal_rounding.json",
+          "sha256": "d57bff708f03530f7055139483a3c970ea6b16e6ad07ee329ac632ff3b6d6561"
+        },
+        "calibration_finer_logit": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/general/bie_gate/calibration_finer_logit_rounding.json",
+          "sha256": "6abfbeca4f243d555a40496939633d0a0b3ce9a60432b6f10fbe74aef9754428"
+        },
+        "registered_masked_cpu_smoke": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/registered_target_smoke/general/receipt.json",
+          "sha256": "46bc8e3156908798675c99d4a523f0781115a9f2813cc5c8933796149d486325"
+        },
+        "optimized_vs_bie": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/optimized_vs_bie/general_joined_int8.json",
+          "sha256": "626327ea397cf234a676b0901ddd11ec12442537de75351e5ea2468e06b4fb97"
+        },
+        "release_replay": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/registered_release_replay/general_joined_heads/receipt.json",
+          "sha256": "ce8fb9a4481d2069e63061a8944cfbc8c03eba04d8329ed6730efe5873f4dd1e"
+        }
+      },
+      "engineering": {
+        "native": {
+          "status": "passed",
+          "evidence": "native_receipt"
+        },
+        "onnx_parity": {
+          "status": "passed",
+          "evidence": "onnx_parity_receipt",
+          "cases_passed": 63,
+          "cases": 63
+        },
+        "optimized_fp32_parity": {
+          "status": "passed",
+          "evidence": "optimized_parity_receipt",
+          "cases_passed": 63,
+          "cases": 63
+        },
+        "kl720_ip": {
+          "status": "passed",
+          "evidence": "ip_receipt",
+          "estimated_fps": 76.3601
+        },
+        "bie_fidelity": {
+          "status": "failed",
+          "evidence": "bie_gate",
+          "criteria_passed": 5,
+          "criteria": 8
+        },
+        "nef_compilation": {
+          "status": "not_run"
+        },
+        "nef_simulator_parity": {
+          "status": "not_run"
+        },
+        "physical_kl720": {
+          "status": "not_run"
+        },
+        "bie_generation": {
+          "status": "passed",
+          "evidence": "ptq_receipt"
+        }
+      },
+      "scientific": {
+        "original_domain": "Published 2D benchmark results on fluorescence microscopy, including DNA FISH and smFISH.",
+        "publication": "https://doi.org/10.1038/s41592-025-02662-x",
+        "nasa_training_bag_mae_foci_per_nucleus": 11.724166666666667,
+        "nasa_training_correct_radiation_directions_out_of_six": 2,
+        "nasa_independent_biological_validation": "not_established",
+        "approved_project_uses": [
+          "Technical characterization and exploratory spot detection"
+        ]
+      },
+      "variants": {
+        "full_int16_transport": {
+          "inherits": "full_int16",
+          "artifacts": {
+            "transport_capture": {
+              "path": "scratch/spotiflow_int16_transport_panel_20261120T004156Z_42e125ae/out/outputs.json",
+              "sha256": "7f0ac21fb470ef8cc017f95e9fdb959141f0f60371cf5af801495c7643e9d7fe"
+            },
+            "transport_outputs": {
+              "path": "scratch/spotiflow_plus_real_transport_panel_v1_20261120/outputs.json",
+              "sha256": "6d13c4a4096590438614123af96b759cbaf42206a7a8e7562f7296617b2f43e8"
+            },
+            "transport_dll_receipt": {
+              "path": "scratch/spotiflow_plus_real_transport_panel_v1_20261120/receipt.json",
+              "sha256": "a9fbb1644f959c82ff869408eaa3e9430a5b5b00c0e42025a0fb33604fc39247"
+            },
+            "transport_point_score": {
+              "path": "scratch/spotiflow_plus_real_transport_panel_v1_20261120/host_point_scoring_v1.json",
+              "sha256": "ea712fb37151ebabd070b04135baba97413a7f27484a566a4bfaac66c319e369"
+            },
+            "physical_smoke": {
+              "path": "scratch/spotiflow_general_transport_usb_smoke_20261120T025814Z_87f21ac3/receipt.json",
+              "sha256": "fce011c42d497c0725506a20b4b07944696785bdd6fa92a2df66286ee878a9e6"
+            },
+            "physical_panel": {
+              "path": "scratch/spotiflow_general_transport_usb_panel_20261120T025850Z_5dce80fd/receipt.json",
+              "sha256": "24a7f6cd7ba0ee7eed42a271e1b7af24f4d537e652516ad6715669f91f87b142"
+            },
+            "physical_native_score": {
+              "path": "scratch/spotiflow_general_transport_usb_panel_native_score_20261120_v1/receipt.json",
+              "sha256": "823275a7855959a13e3a654abaefbb359a5dea4d6f7569a733f11f2d7868c58b"
+            },
+            "physical_raw_recheck": {
+              "path": "scratch/spotiflow_physical_registration_recheck_20261120T030005Z_f33f0ba4/receipt.json",
+              "sha256": "8b300635b938e2def2424e6846f626349155e4a4a0417309e55b586e12c587a3"
+            }
+          },
+          "engineering": {
+            "nef_simulator_parity": {
+              "status": "passed",
+              "evidence": "transport_point_score",
+              "cases_passed": 63,
+              "cases": 63
+            },
+            "physical_kl720": {
+              "status": "passed",
+              "evidence": "physical_panel",
+              "cases_passed": 63,
+              "cases": 63
+            }
+          }
+        },
+        "separate_heads": {
+          "outputs": [
+            "/finest_output/block/block.0/Conv_output_0",
+            "/flow/flow.6/Conv_output_0"
+          ],
+          "artifacts": {
+            "onnx": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports_separate_heads/general/model.onnx",
+              "sha256": "02f77830ef524c9fe55a71ba2f4e3fe3cf4aeaf914123f256675dfd37b4bf7b4"
+            },
+            "export_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports_separate_heads/general/export.json",
+              "sha256": "c8d2549dccedac474a68015e741f0744a7d50e3d53a7fde984d14da944481af1"
+            },
+            "onnx_parity_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports_separate_heads/general/parity/receipt.json",
+              "sha256": "f05ce7504140536d0367c900ab4fa2d78c9cfce9d05a1f58882adebf71625c3b"
+            },
+            "optimized_onnx": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/ip/optimized.onnx",
+              "sha256": "8facb2c0a1464654c7394f983081f3f1cf74caf5edd1cba4d4885289c559663d"
+            },
+            "ip_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/ip/ip.json",
+              "sha256": "b2aafaa9159e3523b8b33ec922b42bce1ecd5f31739cdc21cf8e06b75b75c83e"
+            },
+            "optimized_outputs": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/optimized_fp32/outputs.json",
+              "sha256": "6e7a6f2f98f33b16a2e2376fdc10203569523bc195d247c781eaa412200e4f4b"
+            },
+            "optimized_parity_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/optimized_gate/receipt.json",
+              "sha256": "dadee8c64fd436727fa344ae6fa8f9a21b45a9ec515080903179e977f18c24db"
+            },
+            "registered_masked_cpu_smoke": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/registered_split_smoke/general/receipt.json",
+              "sha256": "9c319c7deb0d9b350be8701194f7ef23358b6d2b2953f812fabdf5e3cc7d7474"
+            },
+            "bie": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/quantize/model.bie",
+              "sha256": "71e382e8de1cfe186851b2a795d9a2f9efb1106e6674b2e525d90ab88b9dd703"
+            },
+            "ptq_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/quantize/ptq.json",
+              "sha256": "bcadba9d4d340c989c6362fb9dd63a1b280b4769f719bb31804b23eb87f6991d"
+            },
+            "bie_outputs": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/bie_readout/outputs.json",
+              "sha256": "3352c0b67615e1bc9f2d6838e3b0a7573fe9ec694d041c390edfd34c90cfd406"
+            },
+            "bie_gate": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/bie_gate/receipt.json",
+              "sha256": "34d060b2d6b4ca43f38896de37a4fa5b9f6f71acc802e33efe7858a771ee17d3"
+            },
+            "optimized_vs_bie": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/optimized_vs_bie/general_split_int8.json",
+              "sha256": "992628379cddcb58594d5ce38b427ee86676c0e72b229717a9ab7ff26dbfec6d"
+            },
+            "release_replay": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/registered_release_replay/general_separate_heads/receipt.json",
+              "sha256": "3f207b2d4df69ddaacbe77c4776c0d0587fbd23b6d59e4dd0a9b4a8a11e642b2"
+            },
+            "output_levels": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/bie_readout_levels.json",
+              "sha256": "e29a1dbcaa02585a7f08de447e07062dadfb211fc2492cc817b483d20aa4ac3d"
+            }
+          },
+          "engineering": {
+            "native": {
+              "status": "passed",
+              "evidence": "native_receipt"
+            },
+            "onnx_parity": {
+              "status": "passed",
+              "evidence": "onnx_parity_receipt",
+              "cases_passed": 63,
+              "cases": 63
+            },
+            "optimized_fp32_parity": {
+              "status": "passed",
+              "evidence": "optimized_parity_receipt",
+              "cases_passed": 63,
+              "cases": 63
+            },
+            "kl720_ip": {
+              "status": "passed",
+              "evidence": "ip_receipt",
+              "estimated_fps": 85.2474
+            },
+            "nef_compilation": {
+              "status": "not_run"
+            },
+            "nef_simulator_parity": {
+              "status": "not_run"
+            },
+            "physical_kl720": {
+              "status": "not_run"
+            },
+            "bie_generation": {
+              "status": "passed",
+              "evidence": "ptq_receipt"
+            },
+            "bie_fidelity": {
+              "status": "failed",
+              "evidence": "bie_gate",
+              "criteria_passed": 5,
+              "criteria": 8
+            }
+          }
+        },
+        "separate_heads_int16": {
+          "outputs": [
+            "/finest_output/block/block.0/Conv_output_0",
+            "/flow/flow.6/Conv_output_0"
+          ],
+          "artifacts": {
+            "onnx": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports_separate_heads/general/model.onnx",
+              "sha256": "02f77830ef524c9fe55a71ba2f4e3fe3cf4aeaf914123f256675dfd37b4bf7b4"
+            },
+            "export_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports_separate_heads/general/export.json",
+              "sha256": "c8d2549dccedac474a68015e741f0744a7d50e3d53a7fde984d14da944481af1"
+            },
+            "onnx_parity_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports_separate_heads/general/parity/receipt.json",
+              "sha256": "f05ce7504140536d0367c900ab4fa2d78c9cfce9d05a1f58882adebf71625c3b"
+            },
+            "optimized_onnx": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/ip/optimized.onnx",
+              "sha256": "8facb2c0a1464654c7394f983081f3f1cf74caf5edd1cba4d4885289c559663d"
+            },
+            "ip_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/ip/ip.json",
+              "sha256": "b2aafaa9159e3523b8b33ec922b42bce1ecd5f31739cdc21cf8e06b75b75c83e"
+            },
+            "optimized_outputs": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/optimized_fp32/outputs.json",
+              "sha256": "6e7a6f2f98f33b16a2e2376fdc10203569523bc195d247c781eaa412200e4f4b"
+            },
+            "optimized_parity_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/optimized_gate/receipt.json",
+              "sha256": "dadee8c64fd436727fa344ae6fa8f9a21b45a9ec515080903179e977f18c24db"
+            },
+            "bie": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads_int16/general/quantize/model.bie",
+              "sha256": "7f5a0bd43c33cc8b21f59edbe9aafd09cb6c7774e22edc3b8d7ea8bedaf76afa"
+            },
+            "ptq_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads_int16/general/quantize/ptq.json",
+              "sha256": "660cfb2e4020f1347421739a97a76e68476ffc60bda8eb912fffb1461db2f446"
+            },
+            "bie_outputs": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads_int16/general/bie_readout/outputs.json",
+              "sha256": "3c1f31fb30790378f50452debbaab27a455897f21b533d8c80bd32ec59368614"
+            },
+            "bie_gate": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads_int16/general/bie_gate/receipt.json",
+              "sha256": "13dacd7c9543fb3f3442908c8c04824ff25bfe65c9b805c71cb1716a5ce2cbe7"
+            },
+            "output_levels": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads_int16/general/bie_readout_levels.json",
+              "sha256": "2ee8716b6d1ab4860948245fd8e9a42e21c02aa0668386221a64c2872af2a5c0"
+            },
+            "head_substitution": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads_int16/general/bie_gate/head_substitution.json",
+              "sha256": "d359aefc942ad1dd99db3b524bbb4a524df2926641445f4baa03d931b6945610"
+            },
+            "optimized_vs_bie": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/optimized_vs_bie/general_split_terminal_int16.json",
+              "sha256": "0a65d22bef4befc5101611aba2e02d027bef50a8ee7479f1eff0e8ced1f11b88"
+            }
+          },
+          "engineering": {
+            "native": {
+              "status": "passed",
+              "evidence": "native_receipt"
+            },
+            "onnx_parity": {
+              "status": "passed",
+              "evidence": "onnx_parity_receipt",
+              "cases_passed": 63,
+              "cases": 63
+            },
+            "optimized_fp32_parity": {
+              "status": "passed",
+              "evidence": "optimized_parity_receipt",
+              "cases_passed": 63,
+              "cases": 63
+            },
+            "kl720_ip": {
+              "status": "passed",
+              "evidence": "ip_receipt",
+              "estimated_fps": 85.2474
+            },
+            "nef_compilation": {
+              "status": "not_run"
+            },
+            "nef_simulator_parity": {
+              "status": "not_run"
+            },
+            "physical_kl720": {
+              "status": "not_run"
+            },
+            "bie_generation": {
+              "status": "passed",
+              "evidence": "ptq_receipt"
+            },
+            "bie_fidelity": {
+              "status": "failed",
+              "evidence": "bie_gate",
+              "criteria_passed": 7,
+              "criteria": 8
+            }
+          },
+          "analysis_overrides": {
+            "model_out_bitwidth_mode": "int16"
+          }
+        },
+        "full_int16": {
+          "outputs": [
+            "/finest_output/block/block.0/Conv_output_0",
+            "/flow/flow.6/Conv_output_0"
+          ],
+          "artifacts": {
+            "onnx": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports_separate_heads/general/model.onnx",
+              "sha256": "02f77830ef524c9fe55a71ba2f4e3fe3cf4aeaf914123f256675dfd37b4bf7b4"
+            },
+            "export_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports_separate_heads/general/export.json",
+              "sha256": "c8d2549dccedac474a68015e741f0744a7d50e3d53a7fde984d14da944481af1"
+            },
+            "onnx_parity_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports_separate_heads/general/parity/receipt.json",
+              "sha256": "f05ce7504140536d0367c900ab4fa2d78c9cfce9d05a1f58882adebf71625c3b"
+            },
+            "optimized_onnx": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/ip/optimized.onnx",
+              "sha256": "8facb2c0a1464654c7394f983081f3f1cf74caf5edd1cba4d4885289c559663d"
+            },
+            "ip_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/ip/ip.json",
+              "sha256": "b2aafaa9159e3523b8b33ec922b42bce1ecd5f31739cdc21cf8e06b75b75c83e"
+            },
+            "optimized_parity_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/optimized_gate/receipt.json",
+              "sha256": "dadee8c64fd436727fa344ae6fa8f9a21b45a9ec515080903179e977f18c24db"
+            },
+            "optimized_outputs": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_separate_heads/general/optimized_fp32/outputs.json",
+              "sha256": "6e7a6f2f98f33b16a2e2376fdc10203569523bc195d247c781eaa412200e4f4b"
+            },
+            "precision_ip_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/precision_ip/ip.json",
+              "sha256": "3daf9e6c45267aa94ff31c01c406d83a70a340489a203bef663edc50f14b0029"
+            },
+            "bie": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/quantize/model.bie",
+              "sha256": "9396ea492a67d3206b92161f69881fd6969ac1bfa3bac4830e436ffb80595a47"
+            },
+            "ptq_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/quantize/ptq.json",
+              "sha256": "d80e6dde08e128187def2e21a9176306e65c7f85f3f71c9c2abdc8705eb850a8"
+            },
+            "input_packing_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/packing_full_int16/receipt.json",
+              "sha256": "efb2d43b1ff02377601e2cec7a598639d4a4d948d4aa17ee25eb5c8792caa107"
+            },
+            "sdk_input_packing": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/packing_full_int16/sdk.json",
+              "sha256": "98a4586752d7bd86709b0e6cce499ccd084af0478cd934090d6a3e566655cd97"
+            },
+            "bie_outputs": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/bie_readout/outputs.json",
+              "sha256": "237f85c0df9de6de49d9a78a78537de598d0c9fa2f9ce0edc609146a0b052492"
+            },
+            "bie_gate": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/bie_gate/receipt.json",
+              "sha256": "cd72031f0f9692d9bd05f9038cb72b5e2c1d72c0ef6fcc7a40c1ba7aa793f424"
+            },
+            "output_levels": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/bie_readout_levels.json",
+              "sha256": "033a778263ff42cc559255a784a6a25295cd110aa4cacacb266469cd1eadb674"
+            },
+            "optimized_vs_bie": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/optimized_vs_bie/general_full_int16.json",
+              "sha256": "f530803893b7ffd07832a75d8e8707c5b9a8694b9a235dc601877bd0b5525025"
+            },
+            "compile_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_compile/receipt.json",
+              "sha256": "78f72e10d505e8cf76c28ca2b0cade71348a1f95eff389b05e075a479317fe39"
+            },
+            "nef": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_compile/model.nef",
+              "sha256": "dda7486fb693702ec784f3648d20ed195499bc5b038f5ecb72a9856d9a004ca1"
+            },
+            "nef_outputs": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_simulator_native_dtype/outputs.json",
+              "sha256": "25ad9f29c36026f7132b84f1d16cb67c9e3321548c14afb2dfef2a63aa26ffb3"
+            },
+            "nef_sim_receipt": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_simulator_native_dtype/receipt.json",
+              "sha256": "1f3455c26b440cad9df40839d3c4382ac25843f6ee4b5cc188ac686f3bdf9cc7"
+            },
+            "nef_sim_execution": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_simulator_native_dtype/execution.json",
+              "sha256": "a497f9b3602bf6e3ca8e968a6b7f4c33af3202ff1b04182890f1548611b3af23"
+            },
+            "nef_compile_log": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_compile/docker.log",
+              "sha256": "a135a01bf8819ddbf49f7e37d5f93516d6c17766de81ab38ee74ebc98a303d2d"
+            },
+            "nef_initial_execution": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_simulator/execution.json",
+              "sha256": "16288400fb0a71d21fcef2a970e3a28f2fce3fd3be538308bc75d7514749d9df"
+            },
+            "embedded_nef_setup": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_setup_binary_audit/receipt.json",
+              "sha256": "8953a6934ce570d0c415abea210a567a7b04263b2aec9ded9aa053999a3db334"
+            },
+            "typed_nef_setup": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_typed_setup_descriptor/receipt.json",
+              "sha256": "71f9fac7e8ca48fa2d860f7bdb079452dd19b21b5e767cce74684e05b2743799"
+            },
+            "signed_nef_words": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_words_complete_v1.json",
+              "sha256": "65744860bc7ffa14fac5f4428a49553b14f12c535fb6c5c52b3080dfb6f6f429"
+            },
+            "nef_input_byte_comparison": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_simulator_native_dtype/input_packing_comparison.json",
+              "sha256": "300d3bac5ac76cd591098137805af5acd66f06eaf41a0dbd0f61f8c10896cb41"
+            },
+            "native_and_bie_versus_nef": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_simulator_native_dtype/native_and_bie_comparisons.json",
+              "sha256": "cf8359c7823670bdaddcc81c34f98f99ce9255c64fa859f0add43e60b7dcbcec"
+            },
+            "csim_scheduling": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_simulator_native_dtype/scheduling.json",
+              "sha256": "1f9469690bf98e4ffc0849c0e3362162da91516fe3e14dcfb53084ce5726f7f3"
+            },
+            "csim_scheduling_second_pause": {
+              "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_full_int16/general/nef_simulator_native_dtype/scheduling_second_pause.json",
+              "sha256": "bc80bf095cd4ccc73a443b4a56ce8662094a295f0385b0e5079c120c57ebbfc1"
+            }
+          },
+          "engineering": {
+            "native": {
+              "status": "passed",
+              "evidence": "native_receipt"
+            },
+            "onnx_parity": {
+              "status": "passed",
+              "evidence": "onnx_parity_receipt",
+              "cases_passed": 63,
+              "cases": 63
+            },
+            "optimized_fp32_parity": {
+              "status": "passed",
+              "evidence": "optimized_parity_receipt",
+              "cases_passed": 63,
+              "cases": 63
+            },
+            "kl720_ip": {
+              "status": "passed",
+              "evidence": "precision_ip_receipt",
+              "estimated_fps": 40.0632
+            },
+            "nef_compilation": {
+              "status": "passed",
+              "evidence": "compile_receipt"
+            },
+            "nef_simulator_parity": {
+              "status": "failed",
+              "evidence": "nef_sim_receipt",
+              "cases": 63,
+              "cases_passed": 0
+            },
+            "physical_kl720": {
+              "status": "blocked",
+              "blocked_by": "nef_simulator_parity"
+            },
+            "bie_generation": {
+              "status": "passed",
+              "evidence": "ptq_receipt"
+            },
+            "bie_fidelity": {
+              "status": "passed",
+              "evidence": "bie_gate",
+              "criteria_passed": 8,
+              "criteria": 8
+            }
+          },
+          "analysis_overrides": {
+            "datapath_bitwidth_mode": "int16",
+            "weight_bitwidth_mode": "int16",
+            "model_in_bitwidth_mode": "int16",
+            "model_out_bitwidth_mode": "int16"
+          }
+        }
+      }
+    },
+    "spotiflow/synth_complex": {
+      "default_variant": "joined_heads",
+      "family": "spotiflow_2d",
+      "checkpoint": "synth_complex",
+      "weight_url": "https://github.com/weigertlab/spotiflow-models/releases/download/0.6.0/synth_complex.zip",
+      "threshold": 0.5239999999999999,
+      "artifacts": {
+        "raw_parity_exceedances": {
+          "path": "scratch/spotiflow_synth_parity_diagnosis_v1/archived_raw_exceedances.json",
+          "sha256": "d0b6a95de4e2ed277ec9037e8121d12ab48402ec2fed486fe1a7262500531dcf"
+        },
+        "explicit_bn_diagnostic_trace": {
+          "path": "scratch/spotiflow_synth_parity_diagnosis_v1/native_ort_trace/receipt.json",
+          "sha256": "4829e98e2faf73b07056d374e740cb2a1249667180e1997d10031c32f21f1cc1"
+        },
+        "onnx": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports/synth_complex/model.onnx",
+          "sha256": "86e3a727171be5a59f3308b405b95d8dd954dde84d63d9d8e52501c43b54afcf"
+        },
+        "export_receipt": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports/synth_complex/export.json",
+          "sha256": "3c904e384d61695207a8e9fd2227218a934aa77ee9826c3e9adb162e29655160"
+        },
+        "optimized_onnx": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/synth_complex/ip/optimized.onnx",
+          "sha256": "8a4bf1da44267d495776032b48790da400a799433adb2accf8340cfbd9dae732"
+        },
+        "ip_receipt": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/synth_complex/ip/ip.json",
+          "sha256": "81cf873adc7eff4763c89e09c634257f8a62f2de442f2ffb0894259f0a7befe6"
+        },
+        "archive": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/synth_complex.zip",
+          "sha256": "e47cf86a4d0ec5defa7712d8ac33b988a843c66428e9e2a4333a5697d52c1c97"
+        },
+        "best.pt": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/synth_complex/best.pt",
+          "sha256": "bdac7d769d8c4b3450e4782ed5a2f6a575892058ee36ad19ef656a610efeb3be"
+        },
+        "config.yaml": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/synth_complex/config.yaml",
+          "sha256": "10253c542bcc21348a1a5b3810de1950be7250be51147f96a8c679eef3cc583a"
+        },
+        "thresholds.yaml": {
+          "path": "scratch/spotiflow_pretrained_models_20261119_native_v1/synth_complex/thresholds.yaml",
+          "sha256": "2f0e41aec62d34814c9d6929bd7b6087cbdb15a4c24e867ab8f7879167d7a4c6"
+        },
+        "onnx_parity_receipt": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports/synth_complex/parity_native_bounds/receipt.json",
+          "sha256": "d5a6271d96d958d3b9862bfba1744da292bc260e4f99a3da70d096650c1d4b22"
+        },
+        "optimized_parity_receipt": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor/synth_complex/optimized_gate_native_bounds/receipt.json",
+          "sha256": "0339efce05a55528fcdfde09e480af46809b7415e90c86439505a6ccbd96f904"
+        },
+        "explicit_bn_onnx": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports_preserved_bn/synth_complex/model.onnx",
+          "sha256": "d6bf28d48088479a2918a80acbe2173a7a4d4f1f9ef0d02b6777ac8d972150d0"
+        },
+        "explicit_bn_parity_receipt": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/exports_preserved_bn/synth_complex/parity/receipt.json",
+          "sha256": "35760f88921792fc7a96bfa7aa789b8fdd5bf563fb7ed46ac5d6b6f25d4c63c6"
+        },
+        "explicit_bn_ip_receipt": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/vendor_preserved_bn/synth_complex/ip/ip.json",
+          "sha256": "9d56458d2b50eb84caaea317e476564d5be6794330259d25cf3c52e63ad6660b"
+        },
+        "registered_cpu_smoke": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/registered_onnx_smoke/synth_complex/receipt.json",
+          "sha256": "14d24ef8fad175f41953a18274784d4e5b6d7aea7c235aecb32d087e864eaab4"
+        },
+        "release_replay": {
+          "path": "scratch/spotiflow_kl720_eng_v1_20261119/registered_release_replay/synth_complex_joined_heads/receipt.json",
+          "sha256": "498389e012bdaab5b5fb21ea5c3c63218498c120b40cd5375fbd431b865b8a77"
+        }
+      },
+      "engineering": {
+        "native": {
+          "status": "passed",
+          "evidence": "native_receipt"
+        },
+        "onnx_parity": {
+          "status": "failed",
+          "evidence": "onnx_parity_receipt",
+          "cases_passed": 57,
+          "cases": 63
+        },
+        "optimized_fp32_parity": {
+          "status": "failed",
+          "evidence": "optimized_parity_receipt",
+          "cases_passed": 58,
+          "cases": 63
+        },
+        "kl720_ip": {
+          "status": "passed",
+          "evidence": "ip_receipt",
+          "estimated_fps": 76.3601
+        },
+        "bie_fidelity": {
+          "status": "not_run"
+        },
+        "nef_compilation": {
+          "status": "not_run"
+        },
+        "nef_simulator_parity": {
+          "status": "not_run"
+        },
+        "physical_kl720": {
+          "status": "not_run"
+        },
+        "bie_generation": {
+          "status": "not_run",
+          "reason": "FP32 parity failed"
+        }
+      },
+      "scientific": {
+        "original_domain": "Published synthetic spot-detector release. The paper does not assign every reported score to a released checkpoint.",
+        "publication": "https://doi.org/10.1038/s41592-025-02662-x",
+        "nasa_training_bag_mae_foci_per_nucleus": 0.7758333333333334,
+        "nasa_training_correct_radiation_directions_out_of_six": 4,
+        "nasa_independent_biological_validation": "not_established",
+        "approved_project_uses": [
+          "Technical characterization and exploratory spot detection"
+        ]
+      }
+    }
+  }
+}

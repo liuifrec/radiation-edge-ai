@@ -18,6 +18,12 @@ dependencies = [
 analysis = [
     "Pillow>=9",
 ]
+spotiflow = [
+    "spotiflow==0.6.5",
+    "onnxruntime>=1.19",
+    "PyYAML>=6",
+    "tifffile",
+]
 perilipin2 = [
     "onnx>=1.12",
     "onnxruntime>=1.12",
@@ -39,8 +45,10 @@ nasa = [
 
 [project.scripts]
 radedge = "radiation_edge_ai.cli:main"
+radedge-pretrained-infer = "radiation_edge_ai.hardware.pretrained_infer:main"
 radedge-kl720-check = "radiation_edge_ai.hardware.kl720_check:main"
 radedge-nasa = "radiation_edge_ai.nasa_bps.multimodel:main"
+radedge-models = "radiation_edge_ai.hardware.pretrained_models:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/radiation_edge_ai"]

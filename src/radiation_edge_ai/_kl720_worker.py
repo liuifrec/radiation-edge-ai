@@ -4,7 +4,8 @@ Run this only with the known-good Kneron PLUS Python environment. The parent
 ``radedge`` process never imports ``kp``.
 
 The input contract is deliberately narrow: an already-preprocessed float32
-batch-1 BCHW NumPy tensor and a frozen one-input/one-output KL720 NEF.
+batch-1 BCHW NumPy tensor and a frozen one-input KL720 NEF. Multiple
+outputs require an explicit, unambiguous channel-joining contract.
 
 No assay-specific preprocessing, model conversion, PTQ, endpoint reconstruction,
 or biological acceptance evaluation occurs here.
@@ -13,6 +14,7 @@ or biological acceptance evaluation occurs here.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import json
 import math
@@ -122,41 +124,49 @@ def pack_kl720_input(kp, input_node, onnx_data: np.ndarray):
     factor = float(np.power(2.0, radix) * scale)
 
     hwc = np.asarray(onnx_data[0].transpose(1, 2, 0), dtype=np.float32)
-    quantized = np.rint(hwc * factor)
-    quantized = np.clip(quantized, -128, 127).astype(np.int8)
-
     layout = input_node.data_layout
+    dtype = np.dtype(np.int8)
     if layout == kp.ModelTensorDataLayout.KP_MODEL_TENSOR_DATA_LAYOUT_4W4C8B:
         width_align_base, channel_align_base, layout_name = 4, 4, "4W4C8B"
     elif layout == kp.ModelTensorDataLayout.KP_MODEL_TENSOR_DATA_LAYOUT_1W16C8B:
         width_align_base, channel_align_base, layout_name = 1, 16, "1W16C8B"
     elif layout == kp.ModelTensorDataLayout.KP_MODEL_TENSOR_DATA_LAYOUT_16W1C8B:
         width_align_base, channel_align_base, layout_name = 16, 1, "16W1C8B"
+    elif layout == getattr(kp.ModelTensorDataLayout, "KP_MODEL_TENSOR_DATA_LAYOUT_8W1C16B", object()):
+        # KL720 V1 standard signed fixed point, with eight little-endian words per 128-bit entry.
+        if channels != 1 or not hasattr(input_node.tensor_shape_info, "v1"):
+            raise RuntimeError("Expected a single-channel KL720 V1 input for this 8W1C16B adapter")
+        width_align_base, channel_align_base, layout_name = 8, 1, "8W1C16B"
+        dtype = np.dtype("<i2")
+    elif layout == getattr(kp.ModelTensorDataLayout, "KP_MODEL_TENSOR_DATA_LAYOUT_1W16C8BHL", object()):
+        if channels != 1 or not hasattr(input_node.tensor_shape_info, "v1"):
+            raise RuntimeError("Expected a single-channel KL720 V1 input for this 1W16C8BHL adapter")
+        width_align_base, channel_align_base, layout_name = 1, 16, "1W16C8BHL"
+        dtype = np.dtype("<i2")
     else:
         raise RuntimeError(
             f"Unsupported KL720 Generic Data input layout: {layout}"
         )
 
+    limits = np.iinfo(dtype)
+    quantized = np.clip(np.rint(hwc * factor), limits.min, limits.max).astype(dtype)
     width_aligned = width_align_base * math.ceil(
         width / float(width_align_base)
     )
     channel_blocks = math.ceil(channels / float(channel_align_base))
-    relayout = np.zeros(
-        (channel_blocks, height, width_aligned, channel_align_base),
-        dtype=np.int8,
-    )
-
-    channel_offset = 0
-    for block in range(channel_blocks):
-        channel_end = min(channel_offset + channel_align_base, channels)
-        count = channel_end - channel_offset
-        values = quantized[:, :, channel_offset:channel_end]
-        if values.shape != (height, width, count):
-            raise RuntimeError(
-                f"Unexpected quantized block shape {values.shape}; expected {(height, width, count)}"
-            )
-        relayout[block, :height, :width, :count] = values
-        channel_offset = channel_end
+    if layout_name == "1W16C8BHL":
+        # SDK FMT_RAW_NPU16B -> FMT_1W16C8BHL: each pixel has two 16-lane entries.
+        # The low entry carries bits 7..1, the high entry bits 15..8.
+        words = quantized[:, :, 0].view("<u2")
+        relayout = np.zeros((height, width, 2, channel_align_base), dtype=np.uint8)
+        relayout[:, :, 0, 0] = (words >> 1) & 0x7f
+        relayout[:, :, 1, 0] = words >> 8
+    else:
+        relayout = np.zeros((channel_blocks, height, width_aligned, channel_align_base), dtype=dtype)
+        for block in range(channel_blocks):
+            channel_offset = block * channel_align_base
+            count = min(channel_align_base, channels - channel_offset)
+            relayout[block, :, :width, :count] = quantized[:, :, channel_offset:channel_offset + count]
 
     metadata = {
         "radix": radix,
@@ -208,6 +218,34 @@ def normalize_retrieved_output(value: np.ndarray, logical_shape):
     )
 
 
+def record_raw_receive(result, path: Path, inference_number: int):
+    """Preserve the PLUS 3.2 allocated receive buffer and identify its header."""
+    header = result.header.get_member_variable_dict()
+    if header.get("inference_number") is not None and int(header["inference_number"]) != inference_number:
+        raise RuntimeError("Received a different KL720 inference number")
+    raw = result.raw_result
+    size = int(raw.buffer_size)
+    address = raw._get_element_buffer()._LP_raw_out_buffer
+    if not address or size <= 0:
+        raise RuntimeError("Empty KL720 receive buffer")
+    with path.open("xb") as handle:
+        handle.write(ctypes.string_at(address, size))
+    return {"header": header, "allocation": artifact_record(path)}
+
+
+def output_order(shapes, channels=None):
+    if channels is None:
+        if len(shapes) != 1:
+            raise RuntimeError("Multiple NEF outputs require an explicit output channel contract")
+        return [0], shapes[0]
+    if not shapes or any(len(s) != 4 or min(s) <= 0 or s[0] != 1 or s[2:] != shapes[0][2:] for s in shapes):
+        raise RuntimeError("Joined outputs require matching batch-1 spatial dimensions")
+    widths = [shape[1] for shape in shapes]
+    if len(set(channels)) != len(channels) or sorted(widths) != sorted(channels):
+        raise RuntimeError("Cannot unambiguously match NEF outputs to the requested channels")
+    return [widths.index(c) for c in channels], (1, sum(channels), *shapes[0][2:])
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
@@ -215,6 +253,13 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--port", type=int)
+    parser.add_argument("--expected-kn", type=lambda x: int(x, 0))
+    parser.add_argument("--expected-firmware-version")
+    parser.add_argument("--required-plus-version")
+    parser.add_argument("--required-plus-dll-sha256")
+    parser.add_argument("--raw-receive", type=Path, help="Optional fresh file for the complete PLUS receive allocation")
+    parser.add_argument("--join-output-channels", nargs="+", type=int,
+                        help="Dequantize each output using PLUS and concatenate in this channel-count order")
     parser.add_argument("--timeout-ms", type=int, default=10000)
     args = parser.parse_args()
 
@@ -233,7 +278,7 @@ def main() -> int:
         raise FileNotFoundError(input_path)
     if args.timeout_ms <= 0:
         raise RuntimeError("--timeout-ms must be positive")
-    if output_path.exists() or manifest_path.exists():
+    if output_path.exists() or manifest_path.exists() or (args.raw_receive and args.raw_receive.exists()):
         raise RuntimeError("Refusing to overwrite existing KL720 worker artifacts")
 
     array = np.load(str(input_path), allow_pickle=False)
@@ -255,6 +300,12 @@ def main() -> int:
 
     descriptors = scan_descriptors(kp)
     device_desc = select_kl720(descriptors, args.port)
+    if args.expected_kn is not None and int(str(device_desc.kn_number), 0) != args.expected_kn:
+        raise RuntimeError("Selected USB descriptor has a different KN number")
+    if args.required_plus_version and kp.core.get_version() != args.required_plus_version:
+        raise RuntimeError("Unexpected PLUS runtime version")
+    if args.required_plus_dll_sha256 and sha256_file(Path(kp.__file__).parent / "lib/libkplus.dll") != args.required_plus_dll_sha256:
+        raise RuntimeError("Unexpected PLUS DLL identity")
     port = int(getattr(device_desc, "usb_port_id", -1))
     product_id = int(getattr(device_desc, "product_id", -1))
     if product_id != 0x720:
@@ -273,6 +324,12 @@ def main() -> int:
     except TypeError:
         kp.core.set_timeout(device_group, args.timeout_ms)
 
+    if args.expected_kn is not None or args.expected_firmware_version:
+        system = kp.core.get_system_info(device_group, port).get_member_variable_dict()
+        if ((args.expected_kn is not None and int(str(system["kn_number"]), 0) != args.expected_kn)
+                or (args.expected_firmware_version and system["firmware_version"] != args.expected_firmware_version)):
+            kp.core.disconnect_devices(device_group)
+            raise RuntimeError("Connected firmware identity differs from the required physical deployment")
     started = time.perf_counter()
     model_descriptor = kp.core.load_model_from_file(
         device_group=device_group,
@@ -285,15 +342,13 @@ def main() -> int:
             f"v0.1c requires exactly one model in NEF; got {len(model_descriptor.models)}"
         )
     model = model_descriptor.models[0]
-    if len(model.input_nodes) != 1 or len(model.output_nodes) != 1:
-        raise RuntimeError(
-            f"v0.1c requires one input/output node; got {len(model.input_nodes)}/{len(model.output_nodes)}"
-        )
+    if len(model.input_nodes) != 1:
+        raise RuntimeError(f"Expected one input; got {len(model.input_nodes)}")
 
     input_node = model.input_nodes[0]
-    output_node = model.output_nodes[0]
     input_shape = descriptor_shape(input_node)
-    output_shape = descriptor_shape(output_node)
+    output_shapes = [descriptor_shape(node) for node in model.output_nodes]
+    order, output_shape = output_order(output_shapes, args.join_output_channels)
     if tuple(array.shape) != input_shape:
         raise RuntimeError(
             f"Input shape {tuple(array.shape)} does not match loaded NEF {input_shape}"
@@ -319,17 +374,17 @@ def main() -> int:
     )
     inference_seconds = time.perf_counter() - started
 
-    if int(raw_result.header.num_output_node) != 1:
-        raise RuntimeError(
-            f"Expected one physical output node, got {raw_result.header.num_output_node}"
-        )
+    if int(raw_result.header.num_output_node) != len(order):
+        raise RuntimeError(f"Physical output count {raw_result.header.num_output_node} differs from descriptor")
 
-    float_obj = kp.inference.generic_inference_retrieve_float_node(
-        node_idx=0,
-        generic_raw_result=raw_result,
-        channels_ordering=kp.ChannelOrdering.KP_CHANNEL_ORDERING_CHW,
-    )
-    output = normalize_retrieved_output(extract_array(float_obj), output_shape)
+    parts = []
+    for idx in order:
+        float_obj = kp.inference.generic_inference_retrieve_float_node(
+            node_idx=idx, generic_raw_result=raw_result,
+            channels_ordering=kp.ChannelOrdering.KP_CHANNEL_ORDERING_CHW,
+        )
+        parts.append(normalize_retrieved_output(extract_array(float_obj), output_shapes[idx]))
+    output = parts[0] if len(parts) == 1 else np.concatenate(parts, axis=1)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("wb") as handle:
@@ -387,6 +442,16 @@ def main() -> int:
         },
     }
 
+    if args.raw_receive:
+        args.raw_receive.parent.mkdir(parents=True, exist_ok=True)
+        manifest["raw_receive"] = record_raw_receive(raw_result, args.raw_receive, 0)
+        manifest["runtime"].update(
+            plus_version=kp.core.get_version(),
+            device=device_desc.get_member_variable_dict(),
+            system_info=kp.core.get_system_info(device_group, port).get_member_variable_dict(),
+        )
+    if args.join_output_channels:
+        manifest["runtime"].update(nef_output_node_shapes=output_shapes, joined_node_order=order)
     manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
         encoding="utf-8",
