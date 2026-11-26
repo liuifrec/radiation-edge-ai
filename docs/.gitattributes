@@ -1,3 +1,5 @@
 # The prospective acceptance record identifies the bytes of both files.
 /NASA_PTQ_ACCEPTANCE_V1.md text eol=lf
 /NASA_PTQ_ACCEPTANCE_V1.json text eol=lf
+/NASA_MOBILENET_V2_FEMALE_INT8_V1.md text eol=lf
+/NASA_MOBILENET_V2_FEMALE_INT8_V1.json text eol=lf
