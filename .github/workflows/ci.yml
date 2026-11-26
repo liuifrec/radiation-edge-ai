@@ -107,6 +107,10 @@ jobs:
           tests/test_nasa_candidate_graphs.py
           tests/test_kneron_candidate_screen.py
           tests/test_kneron_runtime_probe.py
+          tests/test_nasa_multimodel_ptq.py
+          tests/test_nasa_multimodel_bie_inference.py
+          tests/test_nasa_prepare_bie_evaluation.py
+          tests/test_nasa_multimodel_bie_comparison.py
 
   windows-launcher:
     name: Windows NASA launcher contracts
@@ -177,6 +181,8 @@ jobs:
               [int]$ExportSuite.failures -ne 0 -or [int]$ExportSuite.errors -ne 0) {
             throw 'Expected all three trained-export architecture checks to execute without skips.'
           }
+          & $NasaPython -m pytest -q tests/test_nasa_multimodel_ptq.py tests/test_nasa_multimodel_bie_comparison.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows calibration or BIE comparison contracts failed.' }
 
   desktop-windows:
     name: Windows desktop and Track A routing (no device)

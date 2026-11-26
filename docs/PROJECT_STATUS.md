@@ -75,8 +75,7 @@ The inspected base still has these implementation gaps:
 - The generic KL720 worker packs INT8 inputs and requires a single output.
   The reported Spotiflow path needs the qualified higher-precision packing and
   two-output decoding implementation.
-- New trained exports now serialize calibration filenames with portable forward
-  slashes. Reading existing frozen Windows manifests remains a separate import.
+- The trained-model PTQ reader verifies both legacy Windows and portable calibration paths against their original hashes. An offline replay verified all 192 original calibration inputs and reproduced the two failed ResNet18 female-fold BIE limits. This fold remains ineligible for NEF compilation.
 - Architecture construction, assay registration and qualified deployment
   identities are not yet joined into the reported local model catalogue.
 

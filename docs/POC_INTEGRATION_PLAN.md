@@ -47,7 +47,7 @@ integration release receives a new identity.
 | Spotiflow `general` | Preserve released weights, the qualified BIE/NEF, native comparison and the corrected `.seq.16B` simulator interpretation; retain the original failed receipt |
 | DNAi v3 | Retain the original physical reference and replay behavior; v4/v5 remain experimental |
 | NASA R1 v2 | Preserve its original artifacts, post-release interpretation and one-upload batch behavior |
-| NASA trained-model conversion | Portable paths for new exports are imported; next integrate compatible reading of frozen Windows manifests without rewriting their bytes |
+| NASA trained-model conversion | New exports write portable paths. The recovered PTQ reader verifies existing Windows manifests without rewriting them. Offline replay reproduced all eight original ResNet18 female-fold decisions. Next diagnose the extractor on independent training sources before qualifying another candidate. |
 | NASA application batch path | Add a resident KL720 batch adapter using the established physical runner behavior; avoid one process/model upload per nucleus |
 | Result reporting | Share provenance, timing and status fields while retaining assay-specific scores, points, masks and fiber measurements |
 
