@@ -11,17 +11,22 @@ validated helper functions in ``run_kl720_dnai_nef_smoke.py``. Outputs are
 saved as float32 BCHW logits for downstream stitching and biological-fidelity
 analysis in the separate DNAi Python environment.
 
-The runner is resumable by default: existing valid physical output arrays are
-skipped. Use --overwrite to regenerate them.
+The default runner can resume existing physical output arrays. --baseline-replay
+requires a new directory and saves the SDK receive buffers and per-window hashes.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import ctypes
 import hashlib
+import io
 import json
+import platform
+import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -36,6 +41,63 @@ from run_kl720_dnai_nef_smoke import (
     scan_descriptors,
     sha256_file,
 )
+
+
+FROZEN_MANIFEST_SHA256 = "fa1eed5231bc9362231eb59f34ea7bf45fa6012e584ea2af1deda0282ab01711"
+
+
+def replay_device(descriptors, port):
+    candidates = [d for d in descriptors if int(d.product_id) == 0x720]
+    visible = [int(d.usb_port_id) for d in candidates]
+    if port is not None:
+        candidates = [d for d in candidates if int(d.usb_port_id) == port]
+    if len(candidates) != 1:
+        raise RuntimeError(f"Replay requires one matching KL720; requested={port}, KL720 ports={visible}")
+    device = candidates[0]
+    if not device.is_connectable:
+        raise RuntimeError(f"KL720 port {device.usb_port_id} is unconnectable")
+    return device
+
+
+def replay_identity(kp, device, device_group):
+    get_info = getattr(kp.core, "get_system_info", None)
+    info = get_info(device_group, device.usb_port_id) if get_info is not None else None
+    return {
+        "device": device.get_member_variable_dict(),
+        "system_info": info.get_member_variable_dict() if info is not None else None,
+        "runtime": {
+            "plus_version": kp.core.get_version(),
+            "kp_module": str(Path(kp.__file__).resolve()),
+            "python": sys.executable,
+            "python_version": platform.python_version(),
+            "numpy_version": np.__version__,
+        },
+    }
+
+
+def save_receive_buffer(result, path, sent_number):
+    header = result.header.get_member_variable_dict()
+    number = header.get("inference_number")
+    if number is not None and int(number) != sent_number:
+        raise RuntimeError(f"Unexpected KL720 inference number {number}; sent {sent_number}")
+    raw = result.raw_result
+    # PLUS 3.2 passes this buffer pointer and its allocation size to its USB
+    # receiver. The wrapper does not expose a separate transferred byte count.
+    length = int(raw.buffer_size)
+    pointer = raw._get_element_buffer()._LP_raw_out_buffer
+    if not pointer or length <= 0:
+        raise RuntimeError("KL720 receive buffer is missing or empty")
+    payload = ctypes.string_at(pointer, length)
+    with path.open("xb") as handle:
+        handle.write(payload)
+    return {
+        "inference_number_sent": sent_number,
+        "inference_number_received": number,
+        "receive_header_json": json.dumps(header, sort_keys=True),
+        "raw_receive_path": str(path),
+        "raw_receive_sha256": hashlib.sha256(payload).hexdigest(),
+        "raw_receive_buffer_bytes": length,
+    }
 
 
 def load_manifest(path: Path) -> dict:
@@ -79,12 +141,12 @@ def valid_saved_output(path: Path) -> bool:
     )
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--nef", required=True)
     parser.add_argument("--validation-manifest", required=True)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--port", type=int, default=81)
+    parser.add_argument("--port", type=int, help="USB port; automatic when exactly one KL720 is visible")
     parser.add_argument("--timeout-ms", type=int, default=10000)
     parser.add_argument(
         "--sample-ids",
@@ -93,13 +155,17 @@ def main() -> int:
     )
     parser.add_argument("--limit", type=int, default=None, help="Optional window limit after filtering")
     parser.add_argument("--overwrite", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument("--baseline-replay", action="store_true",
+                        help="Require fresh hardware inference and capture the raw SDK receive buffers")
+    args = parser.parse_args(argv)
+    if args.baseline_replay and args.overwrite:
+        parser.error("--baseline-replay and --overwrite are mutually exclusive")
+    started_utc = datetime.now(timezone.utc).isoformat()
 
     nef_path = Path(args.nef).resolve()
     manifest_path = Path(args.validation_manifest).resolve()
     output_root = Path(args.output_dir).resolve()
     physical_dir = output_root / "physical_outputs"
-    physical_dir.mkdir(parents=True, exist_ok=True)
 
     if not nef_path.is_file():
         raise FileNotFoundError(nef_path)
@@ -113,6 +179,13 @@ def main() -> int:
             f"observed={observed_nef_sha}, expected={EXPECTED_NEF_SHA256}"
         )
 
+    if args.baseline_replay:
+        manifest_sha = sha256_file(manifest_path)
+        if manifest_sha != FROZEN_MANIFEST_SHA256:
+            raise RuntimeError(f"Unexpected DNAi frozen validation manifest SHA256: {manifest_sha}")
+        output_root.mkdir(parents=True, exist_ok=False)
+        (output_root / "raw_receive_buffers").mkdir()
+    physical_dir.mkdir(parents=True, exist_ok=True)
     manifest = load_manifest(manifest_path)
     records = list(manifest["records"])
     requested_samples = parse_sample_ids(args.sample_ids)
@@ -140,29 +213,34 @@ def main() -> int:
     print(f"Manifest: {manifest_path}")
     print(f"Selected windows: {len(records)}")
     print(f"Output: {physical_dir}")
-    print(f"Resume existing outputs: {'NO' if args.overwrite else 'YES'}")
+    print(f"Resume existing outputs: {'NO' if args.overwrite or args.baseline_replay else 'YES'}")
     print("")
 
     descriptors = scan_descriptors(kp)
-    matching = [d for d in descriptors if int(getattr(d, "usb_port_id", -1)) == args.port]
-    if not matching:
-        visible = [getattr(d, "usb_port_id", None) for d in descriptors]
-        raise RuntimeError(f"KL720 USB port {args.port} not found; visible ports={visible}")
-    device = matching[0]
+    port = args.port
+    if args.baseline_replay or port is None:
+        device = replay_device(descriptors, port)
+        port = int(device.usb_port_id)
+    else:
+        matching = [d for d in descriptors if int(getattr(d, "usb_port_id", -1)) == port]
+        if not matching:
+            visible = [getattr(d, "usb_port_id", None) for d in descriptors]
+            raise RuntimeError(f"KL720 USB port {port} not found; visible ports={visible}")
+        device = matching[0]
     product_id = int(getattr(device, "product_id", -1))
     if product_id != 0x720:
         raise RuntimeError(
-            f"USB port {args.port} is product_id=0x{product_id:x}, expected KL720 (0x720)"
+            f"USB port {port} is product_id=0x{product_id:x}, expected KL720 (0x720)"
         )
-    print(f"[Device] port={args.port} KL720 detected (product_id=0x{product_id:x})")
+    print(f"[Device] port={port} KL720 detected (product_id=0x{product_id:x})")
     firmware = getattr(device, "firmware", getattr(device, "firmware_version", None))
     if firmware is not None:
         print(f"  firmware: {firmware}")
 
     try:
-        device_group = kp.core.connect_devices(usb_port_ids=[args.port])
+        device_group = kp.core.connect_devices(usb_port_ids=[port])
     except TypeError:
-        device_group = kp.core.connect_devices([args.port])
+        device_group = kp.core.connect_devices([port])
     print("[Connect] PASS")
 
     try:
@@ -171,6 +249,12 @@ def main() -> int:
         kp.core.set_timeout(device_group, args.timeout_ms)
     print(f"[Timeout] {args.timeout_ms} ms")
 
+    identity = replay_identity(kp, device, device_group) if args.baseline_replay else None
+    if args.baseline_replay and (
+        identity["runtime"]["plus_version"] != "3.2.0"
+        or (identity["system_info"] or {}).get("firmware_version") != "2.2.0-build.615"
+    ):
+        raise RuntimeError("Baseline replay requires PLUS 3.2.0 and KL720 firmware 2.2.0-build.615")
     t0 = time.perf_counter()
     model_nef_descriptor = kp.core.load_model_from_file(
         device_group=device_group,
@@ -182,6 +266,8 @@ def main() -> int:
     if len(model_nef_descriptor.models) != 1:
         raise RuntimeError(f"Expected one model in NEF, got {len(model_nef_descriptor.models)}")
     model = model_nef_descriptor.models[0]
+    if args.baseline_replay and (int(model.id), int(model.version)) != (32769, 0x8B28):
+        raise RuntimeError("Unexpected DNAi v3 model ID or version")
     if len(model.input_nodes) != 1:
         raise RuntimeError(f"Expected one model input, got {len(model.input_nodes)}")
     if len(model.output_nodes) != 1:
@@ -219,7 +305,7 @@ def main() -> int:
         input_path = validation_root / record["tensor"]
         output_path = physical_dir / f"{stem}.npy"
 
-        if not args.overwrite and valid_saved_output(output_path):
+        if not args.baseline_replay and not args.overwrite and valid_saved_output(output_path):
             n_skipped += 1
             rows.append(
                 {
@@ -238,7 +324,13 @@ def main() -> int:
             print(f"[{position:03d}/{len(records):03d}] {record['sample_id']} w{record['window_index']} existing")
             continue
 
-        array = np.load(input_path, allow_pickle=False)
+        replay_row = {}
+        if args.baseline_replay:
+            input_bytes = input_path.read_bytes()
+            replay_row["input_sha256"] = hashlib.sha256(input_bytes).hexdigest()
+            array = np.load(io.BytesIO(input_bytes), allow_pickle=False)
+        else:
+            array = np.load(input_path, allow_pickle=False)
         if array.shape != EXPECTED_INPUT_SHAPE or array.dtype != np.float32:
             raise RuntimeError(f"Invalid validation tensor {array.shape} {array.dtype}: {input_path}")
         if not np.isfinite(array).all():
@@ -266,6 +358,10 @@ def main() -> int:
         raw_result = kp.inference.generic_data_inference_receive(device_group=device_group)
         hardware_ms = (time.perf_counter() - t0) * 1000.0
 
+        if args.baseline_replay:
+            replay_row["packed_sha256"] = hashlib.sha256(npu_input_buffer).hexdigest()
+            raw_path = output_root / "raw_receive_buffers" / f"{stem}.bin"
+            replay_row.update(save_receive_buffer(raw_result, raw_path, position - 1))
         if int(raw_result.header.num_output_node) != 1:
             raise RuntimeError(
                 f"Expected one output node for {stem}, got {raw_result.header.num_output_node}"
@@ -283,7 +379,10 @@ def main() -> int:
         if not np.isfinite(output).all():
             raise RuntimeError(f"Physical output contains non-finite values: {stem}")
         output = np.ascontiguousarray(output, dtype=np.float32)
-        np.save(output_path, output, allow_pickle=False)
+        with output_path.open("xb" if args.baseline_replay else "wb") as handle:
+            np.save(handle, output, allow_pickle=False)
+        if args.baseline_replay:
+            replay_row["output_sha256"] = sha256_file(output_path)
         n_ran += 1
 
         rows.append(
@@ -298,6 +397,7 @@ def main() -> int:
                 "host_pack_ms": host_pack_ms,
                 "hardware_send_receive_ms": hardware_ms,
                 "status": "ran",
+                **replay_row,
             }
         )
         print(
@@ -341,7 +441,7 @@ def main() -> int:
         "nef": str(nef_path),
         "nef_sha256": observed_nef_sha,
         "validation_manifest": str(manifest_path),
-        "usb_port": args.port,
+        "usb_port": port,
         "model_id": int(model.id),
         "selected_samples": unique_samples,
         "selected_windows": len(records),
@@ -360,6 +460,18 @@ def main() -> int:
         "per_window_csv": str(csv_path),
         "complete": not missing_outputs,
     }
+    if args.baseline_replay:
+        summary.update({
+            "schema": "dnai_physical_replay_v1",
+            "started_utc": started_utc,
+            "completed_utc": datetime.now(timezone.utc).isoformat(),
+            "validation_manifest_sha256": manifest_sha,
+            "per_window_sha256": sha256_file(csv_path),
+            "nef_metadata": model_nef_descriptor.metadata.get_member_variable_dict(),
+            "model_version": int(model.version),
+            "receive_buffer_format": "Full Kneron PLUS receive allocation; header is separate in per_window.csv",
+            **identity,
+        })
     summary_path = output_root / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
