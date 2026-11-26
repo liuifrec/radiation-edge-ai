@@ -696,7 +696,7 @@ def export(args: argparse.Namespace) -> dict[str, Any]:
                                 "onnx": float(actual.reshape(-1)[0]),
                                 "absolute_error": float(np.max(np.abs(expected - actual))),
                                 "parity_pass": passed})
-            arrays.append({**row, "array_file": str(array_path.relative_to(args.out)),
+            arrays.append({**row, "array_file": array_path.relative_to(args.out).as_posix(),
                            "array_sha256": checkpoint_identity(array_path)["sha256"]})
     _write_csv(args.out / "calibration_manifest.csv", arrays)
     _write_csv(args.out / "onnx_parity.csv", parity_rows)

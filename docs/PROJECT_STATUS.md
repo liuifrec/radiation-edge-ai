@@ -1,6 +1,6 @@
 # Project status
 
-**Consolidated 2026-11-24 (Japan time).** This is the current project status
+**Consolidated 2026-11-24; source recovery updated 2026-11-26 (Japan time).** This is the current project status
 index. The [evidence ledger](PROGRESS_EVIDENCE_20261124.md) records the source,
 measurement scope and limitations behind each entry. Historical protocols and
 failed results retain their original identities and decisions.
@@ -16,16 +16,18 @@ applications; they do not establish RERF assay validation or flight readiness.
 
 Two evidence sources are deliberately separate:
 
-- **Repository inspection:** source and CI at base commit
-  `561fed0b3572d19392f2471e0b274840ba468fcd` were inspected on 2026-11-24.
+- **Repository inspection:** current published base
+  `4881cd914c50da03a30ca35b5be15a9c76db6a18` includes merged PRs #26 and #27.
+  The November 20 source bundle was verified on November 26, including its
+  frozen branch and tag target. See the [source recovery record](WINDOWS_POC_SOURCE_RECOVERY_20261126.md).
 - **Investigator reports:** the later Windows training, conversion, device and
-  freeze results were supplied by the investigator. Their raw local artifacts
-  and reported integration commit `fa5047f` were not available in this checkout
-  or on GitHub when this consolidation was prepared. They were not rehashed or
-  rerun here.
+  freeze results were supplied by the investigator. Their source at `fa5047f`
+  is now available for review. The external model binaries, image panels and
+  raw execution receipts have not been rehashed or rerun here.
 
-This documentation consolidates those reports. It does not import the missing
-Windows implementation or turn reported measurements into an independent audit.
+The first source integration imports the NASA calibration-filename export fix.
+The newer registry, transport and replay commands remain to integrate. Source
+recovery does not turn reported measurements into an independent hardware audit.
 
 ## Model and assay status
 
@@ -55,14 +57,15 @@ completed the NASA-specific physical and original biological-gate path.
 
 The published base provides the NASA R1 v2 replay, a shared NASA three-model
 training/export workflow, early graph screening, and existing DNAi execution
-and audit tools. Start with the [NASA quickstart](NASA_LOCAL_NPU_QUICKSTART.md)
+and audit tools. It now also includes the experimental Windows desktop,
+Perilipin2 Track A analysis/QC and compiler-isolation tooling. Start with the [NASA quickstart](NASA_LOCAL_NPU_QUICKSTART.md)
 and the [historical unified release guide](UNIFIED_KL720_V0_11_RELEASE.md).
 Both require the documented external artifacts and runtime environments.
 
 The newer commands `run_spotiflow_kl720.ps1 -Smoke` and
 `run_dnai_hardware_baseline.py` were reported from the local Windows branch.
-Those launchers and the newer pretrained-model registry are **not supplied by
-this documentation consolidation**. Their names identify integration targets,
+Those launchers and the newer pretrained-model registry are present in the
+recovered source but **not yet integrated into main**. Their names identify integration targets,
 not commands a new clone can currently execute.
 
 The inspected base still has these implementation gaps:
@@ -72,8 +75,8 @@ The inspected base still has these implementation gaps:
 - The generic KL720 worker packs INT8 inputs and requires a single output.
   The reported Spotiflow path needs the qualified higher-precision packing and
   two-output decoding implementation.
-- The trained exporter still serializes calibration paths with native path
-  separators. The reported Windows-to-Linux portability fix remains to import.
+- New trained exports now serialize calibration filenames with portable forward
+  slashes. Reading existing frozen Windows manifests remains a separate import.
 - Architecture construction, assay registration and qualified deployment
   identities are not yet joined into the reported local model catalogue.
 
@@ -82,9 +85,10 @@ actual local source and evidence without reconstructing it from console text.
 
 ## Software and freeze status
 
-At the inspected base, [GitHub CI](https://github.com/liuifrec/radiation-edge-ai/actions/runs/44691562702)
-passed all five jobs, including native Windows launcher checks. A fresh Linux
-audit ran **350 tests successfully**, with **25 Windows-specific tests skipped**.
+At the current published base, [GitHub CI](https://github.com/liuifrec/radiation-edge-ai/actions/runs/45304236354)
+passed all six jobs, including native Windows NASA and desktop checks. During
+PR #26/#27 integration, the identical combined tree passed **484 tests**, with
+**34 skips** requiring Windows or the external frozen Track A archive.
 These are software checks, not vendor or physical biological validation.
 The investigator separately reported 579 passes and 19 skips in the NASA
 environment, 77 offline Spotiflow passes and a passed opt-in USB test for the local integration;

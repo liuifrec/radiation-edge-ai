@@ -241,6 +241,9 @@ def test_actual_minibag_training_full_bag_evaluation_and_onnx_export(tmp_path, a
     result = mm.export(SimpleNamespace(run_dir=run_dir, out=output, image_root=None))
     assert result["parity_pass"] is True
     assert result["calibration_arrays"] == 2
+    assert [row["array_file"] for row in mm._read_csv(output / "calibration_manifest.csv")] == [
+        "calibration_nchw/0000.npy", "calibration_nchw/0001.npy"
+    ]
     assert result["contract"]["input"]["deployment_shape"] == [1, 3, 256, 256]
     assert np.load(output / "calibration_nchw" / "0000.npy").shape == (1, 3, 256, 256)
     # Export must verify raw TIFF identities again, even if pixels remain readable.

@@ -151,7 +151,7 @@ jobs:
           $NasaPython = Join-Path $NasaEnv 'Scripts\python.exe'
           & $NasaPython -m pip install --upgrade pip
           if ($LASTEXITCODE -ne 0) { throw 'NASA pip update failed.' }
-          & $NasaPython -m pip install -e "$($PWD.Path)[nasa]"
+          & $NasaPython -m pip install -e "$($PWD.Path)[dev,nasa]"
           if ($LASTEXITCODE -ne 0) { throw 'NASA scientific dependency installation failed.' }
           & $NasaPython -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'NASA dependency validation failed.' }
@@ -166,6 +166,16 @@ jobs:
           $Receipt = Get-Content (Join-Path $ScreenOut 'screen_receipt.json') -Raw | ConvertFrom-Json
           if ($Receipt.status -ne 'EXPORTED_ONLY' -or @($Receipt.models).Count -ne 3) {
             throw 'Windows Python 3.9 did not export all three actual candidate graphs.'
+          }
+          $CalibrationReport = Join-Path $NasaRoot 'trained-export-contracts.xml'
+          & $NasaPython -m pytest -q --junitxml $CalibrationReport `
+            tests/test_nasa_multimodel.py::test_actual_minibag_training_full_bag_evaluation_and_onnx_export
+          if ($LASTEXITCODE -ne 0) { throw 'Windows trained export or portable calibration paths failed.' }
+          [xml]$CalibrationChecks = Get-Content -LiteralPath $CalibrationReport -Raw
+          $ExportSuite = $CalibrationChecks.testsuites.testsuite
+          if ([int]$ExportSuite.tests -ne 3 -or [int]$ExportSuite.skipped -ne 0 -or
+              [int]$ExportSuite.failures -ne 0 -or [int]$ExportSuite.errors -ne 0) {
+            throw 'Expected all three trained-export architecture checks to execute without skips.'
           }
 
   desktop-windows:
