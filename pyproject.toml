@@ -41,6 +41,7 @@ nasa = [
 radedge = "radiation_edge_ai.cli:main"
 radedge-kl720-check = "radiation_edge_ai.hardware.kl720_check:main"
 radedge-nasa = "radiation_edge_ai.nasa_bps.multimodel:main"
+radedge-models = "radiation_edge_ai.hardware.pretrained_models:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/radiation_edge_ai"]

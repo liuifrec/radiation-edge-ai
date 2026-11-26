@@ -1,0 +1,37 @@
+{
+  "schema": "spotiflow_kl720_engineering_gates_v1",
+  "declared_utc": "2026-11-19T03:53:06Z",
+  "models": ["general", "synth_complex"],
+  "model_release": "0.6.0",
+  "native_runtime_version": "0.6.5",
+  "scope": "Per checkpoint, single-channel 2D fixed-geometry conversion fidelity. Scientific qualification is recorded separately.",
+  "input": {"dtype": "float32", "nchw": [1, 1, 128, 128], "preprocessing": "Upstream automatic percentile normalization and centered reflect padding at the native grid. Preserve each original unpadded geometry."},
+  "output": {"nchw": [1, 4, 128, 128], "channels": ["finest_heatmap_logit", "flow_raw_0", "flow_raw_1", "flow_raw_2"], "host": "Upstream sigmoid, L2 normalization across the three flow channels (eps=1e-12), unpadding, peak finding and subpixel refinement; released best-weight thresholds."},
+  "cohorts": {"calibration": "Engineering calibration only, frozen hashed list prior to PTQ. Disjoint from the readout by animal for NASA, and by original field for public spot images.", "readout": "All preselected readout inputs, no historical NASA evaluation or final holdout. Public examples are technical deployment inputs."},
+  "fp32_per_input": {
+    "applies_to": ["original ONNX versus native", "optimized ONNX versus native", "any rearrangement of the neural/host boundary versus native"],
+    "finite_expected_shapes": true,
+    "raw_heads_max_abs": 0.0001,
+    "raw_heads_rmse": 0.00001,
+    "probability_max_abs": 0.0001,
+    "normalized_flow_max_abs": 0.0001,
+    "count_must_be_identical": true,
+    "matched_coordinate_max_abs_pixels": 0.001
+  },
+  "ip": {"target": "720", "image_id": "sha256:2207d99c9f78deef90647a3da3047ec3f7942ec689385a586fee476f77e89041", "require": "Successful fresh evaluator for this optimized graph with actual neural compute assigned to NPU. Host operations are declared explicitly. A run can characterize IP even when parity fails."},
+  "ptq": {"prerequisites": ["original and optimized FP32 parity", "IP placement", "calibration/readout disjointness"], "candidate": "Vendor default KL720 PTQ, two analysis threads. Each checkpoint has independent calibration/output scales and qualification."},
+  "bie_versus_native": {
+    "finite_complete_coverage": true,
+    "pooled_probability_mae": {"max": 0.02},
+    "pooled_probability_abs_error_p99": {"max": 0.15},
+    "pooled_normalized_flow_component_mae": {"max": 0.05},
+    "pooled_point_f1": {"min": 0.95, "one_to_one_match_radius_px": 1.0, "require_nonempty_aggregate_reference_and_candidate": true},
+    "matched_point_distance_p95_px": {"max": 0.5, "require_at_least_one_match": true},
+    "nasa_target_count_mae_per_nucleus": {"max": 0.5},
+    "nasa_target_count_abs_mean_change_per_nucleus": {"max": 0.25},
+    "aggregation": "Map errors on valid crop pixels and components, point F1 from micro-aggregated TP/FP/FN over all fields, maximum-cardinality within radius then nearest-distance matching. Counts use the registered target nucleus. Include per-input and per-domain results."
+  },
+  "nef": {"requires_all_bie_gates": true, "validation": "Same frozen inputs. Every simulator output tensor must agree with the fixed-point BIE after descriptor-aware decoding, max absolute difference 0.000001 with zero relative tolerance; preserve identical point counts and coordinates within 0.001 pixel."},
+  "physical": {"requires_nef_simulator_parity": true, "validation": "Nonpersistent NEF upload over USB, verify SHA256 and device descriptors, no firmware changes. Compare every readout to NEF simulator using the same tolerances. Measure resident-model inference and full pipeline through host point decoding; retain raw buffers and timing boundaries."},
+  "policy": "Keep failed receipts and individual criterion outcomes. Qualify only the checkpoint, geometry, preprocessing, panel and SDK actually measured. These project-defined engineering tolerances make no biological equivalence claim."
+}
