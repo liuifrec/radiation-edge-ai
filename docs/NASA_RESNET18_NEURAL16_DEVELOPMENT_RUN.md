@@ -17,8 +17,11 @@ Kneron image. The local run used the following paths.
 ```powershell
 $data = 'D:\radiation-edge-ai-data'
 $python = Join-Path $data 'envs\nasa39\Scripts\python.exe'
+$plotPython = Join-Path $data 'scratch\spotiflow_pretrained_models_20261119_native_v1\venv\Scripts\python.exe'
 $env:PYTHONPATH = (Resolve-Path .\src).Path
 $run = Join-Path $data 'scratch\nasa_resnet_neural16_dev_20261127_v1'
+$env:MPLBACKEND = 'Agg'
+$env:MPLCONFIGDIR = Join-Path $run 'figure_cache'
 $prepared = Join-Path $data 'scratch\nasa_resnet18_female_eval_20261118T060157Z_5ffa44b2\preparation'
 $standard = Join-Path $data 'scratch\nasa_resnet18_female_bie_readout_20261118T060725Z_438c78b7\comparison'
 $policy = (Resolve-Path .\docs\NASA_RESNET18_NEURAL16_REGRESSION_V1.json).Path
@@ -53,7 +56,7 @@ directories are created once. Keep the first receipts with the binary.
 ```powershell
 & $python -B -m radiation_edge_ai.nasa_bps.neural16_comparison --run $run --prepared $prepared --data-root $data --policy $policy
 & $python -B -m radiation_edge_ai.nasa_bps.neural16_audit --run $run --prepared $prepared --data-root $data --policy $policy
-& $python -B .\scripts\analysis\report_resnet_precision_regression.py --run $run --historical $standard --out (Join-Path $run 'paired_report')
+& $plotPython -B .\scripts\analysis\report_resnet_precision_regression.py --run $run --historical $standard --out (Join-Path $run 'paired_report')
 ```
 
 To verify again from archived native jobs, use a fresh audit destination. This
