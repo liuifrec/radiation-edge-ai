@@ -21,6 +21,15 @@ HARDWARE_REF_SHA = "fce011c42d497c0725506a20b4b07944696785bdd6fa92a2df66286ee878
 
 
 def preflight(args, kp):
+    reference_file = args.data / HARDWARE_REF
+    require(sha256(reference_file) == HARDWARE_REF_SHA, "Changed physical reference identity")
+    old = load_json(reference_file)
+    firmware = old["system_info"]["firmware_version"]
+    expected_kn = int(old["device"]["kn_number"], 0)
+    require(sha256(Path(kp.__file__).parent / "lib/libkplus.dll") == old["plus_dll_sha256"] == abi.DLL_SHA,
+            "Unexpected PLUS native DLL")
+    require(kp.core.get_version() == old["plus_version"] == "3.2.0", "Unexpected PLUS runtime version")
+
     run = args.campaign.resolve(strict=True)
     chain = gate.eligibility(Path(__file__).resolve().parents[2] / "docs", args.data, run, args.audit_sha256)
     compiled = gate.completed_stage(args.compile_dir, "compile", args.compile_sha256, chain)
@@ -33,9 +42,10 @@ def preflight(args, kp):
         require(training["compile_sha256"] == sim["compile_sha256"] and
                 training["nef_sha256"] == sim["nef_sha256"] and len(training["rows"]) == 48
                 and sim["development_replay_policy_sha256"] == gate.REPLAY_POLICY_SHA, "Training NEF decision changed")
-    nef = args.compile_dir / "model.nef"
+    nef_bytes = (args.compile_dir / "model.nef").read_bytes()
     flow = args.compile_dir / "kneron_flow/model_modelid_32783"
-    require(compiled["nef_sha256"] == sim["nef_sha256"] == sha256(nef) and sim["compile_sha256"] == args.compile_sha256
+    require(compiled["nef_sha256"] == sim["nef_sha256"] == hashlib.sha256(nef_bytes).hexdigest()
+            and sim["compile_sha256"] == args.compile_sha256
             and compiled["model_id"] == 32783 and compiled["model_version"] == 1
             and compiled["cpu_nodes"] == [] and compiled["reference_memory"]["fits_reference_map"] is True
             and sha256(flow / "ioinfo.json") == compiled["compiled_io_sha256"]
@@ -94,30 +104,25 @@ def preflight(args, kp):
         replay = replay_packet(kp, artificial, synthetic_header, head, word, index)
         require(replay["decoded"] == measured["decoded"], "PLUS offline float retrieval differs from CSIM")
         verified.append((path, item))
-    reference_file = args.data / HARDWARE_REF
-    require(sha256(reference_file) == HARDWARE_REF_SHA, "Changed physical reference identity")
-    old = load_json(reference_file)
-    firmware = old["system_info"]["firmware_version"]
-    expected_kn = int(old["device"]["kn_number"], 0)
-    require(kp.core.get_version() == old["plus_version"] == "3.2.0"
-            and sha256(Path(kp.__file__).parent / "lib/libkplus.dll") == old["plus_dll_sha256"] == abi.DLL_SHA,
-            "Unexpected PLUS native runtime")
-    return nef, head, verified, expected_kn, firmware
+    return nef_bytes, head, verified, expected_kn, firmware
 
 
-def passing_smoke(path, digest, nef_sha, training_sim_sha, head, kp, expected_kn, firmware, smoke_word):
+def passing_smoke(path, digest, nef_sha, training_sim_sha, head, kp, expected_kn, firmware, reference):
     require(path is not None and sha256(path) == digest, "A pinned physical smoke receipt is required")
     smoke = load_json(path)
     require(smoke["stage"] == "smoke" and smoke["passed"] is True and smoke["physical_execution"] is True
             and smoke["nef_sha256"] == nef_sha and smoke["sim_sha256"] == training_sim_sha
+            and smoke["model_id"] == 32783 and smoke["model_version"] == "1"
             and len(smoke["rows"]) == 1, "Physical smoke was incomplete or belongs to a different model")
     check_device(smoke["device"], smoke["system"], firmware, expected_kn=expected_kn)
     (item,) = smoke["rows"]
-    require(item["sample_id"] == transport.SMOKE and item["passed"] is True
-            and item["fixed_word"] == smoke_word, "Physical smoke did not reproduce the qualified positive witness")
+    require(item["sample_id"] == reference["sample_id"] == transport.SMOKE and item["passed"] is True
+            and item["input_sha256"] == reference["input_sha256"]
+            and item["packed_sha256"] == reference["sdk_input_sha256"]
+            and item["fixed_word"] == reference["word"], "Physical smoke did not reproduce the qualified positive witness")
     packet = path.parent / (transport.SMOKE + ".bin")
     require(sha256(packet) == item["raw_receive"]["allocation"]["sha256"], "Changed raw smoke output")
-    replay = replay_packet(kp, packet.read_bytes(), item["raw_receive"]["header"], head, smoke_word, 0)
+    replay = replay_packet(kp, packet.read_bytes(), item["raw_receive"]["header"], head, reference["word"], 0)
     require(replay["decoded"] == item["decoded"], "Smoke scalar differs from archived PLUS retrieval")
 
 
@@ -138,10 +143,10 @@ def run(args):
     import kp
 
     require(args.data.resolve() in args.out.resolve().parents, "Use a fresh external record directory")
-    nef, head, panel, kn, firmware = preflight(args, kp)
+    nef_bytes, head, panel, kn, firmware = preflight(args, kp)
     rows = panel[:1] if args.mode == "smoke" else panel
     rec = {"stage": args.mode, "physical_execution": False, "passed": False, "rows": [],
-           "created_utc": datetime.now(timezone.utc).isoformat(), "nef_sha256": sha256(nef),
+           "created_utc": datetime.now(timezone.utc).isoformat(), "nef_sha256": hashlib.sha256(nef_bytes).hexdigest(),
            "audit_sha256": args.audit_sha256, "compile_sha256": args.compile_sha256, "sim_sha256": args.sim_sha256,
            "mode": "physical" if args.execute else "offline_plus_transport_preflight",
            "available_references": len(panel), "operator_requested_execute": args.execute,
@@ -162,7 +167,7 @@ def run(args):
                 positive = panel[0][1]
             require(positive["sample_id"] == transport.SMOKE, "Wrong smoke case")
             passing_smoke(args.smoke_receipt, args.smoke_sha256, rec["nef_sha256"], training_sim_sha,
-                          head, kp, kn, firmware, positive["word"])
+                          head, kp, kn, firmware, positive)
             rec["physical_smoke_sha256"] = args.smoke_sha256
         dev = usb.select_kl720(usb.scan_descriptors(kp), args.port)
         rec["device"] = dev.get_member_variable_dict()
@@ -173,7 +178,7 @@ def run(args):
         rec["system"] = kp.core.get_system_info(group, port).get_member_variable_dict()
         check_device(rec["device"], rec["system"], firmware, expected_kn=kn)
         start = time.perf_counter()
-        (model,) = kp.core.load_model_from_file(group, str(nef)).models
+        (model,) = kp.core.load_model(group, nef_bytes).models
         rec.update(load_seconds=time.perf_counter()-start, model_id=int(model.id), model_version=str(model.version))
         loaded_descriptors(kp, model)
         rec["physical_execution"] = True

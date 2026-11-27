@@ -134,7 +134,7 @@ def test_usb_offline_receipt_never_opens_device(tmp_path, monkeypatch):
     args = SimpleNamespace(data=tmp_path, out=tmp_path / "offline", mode="smoke", execute=False,
                            audit_sha256="A", compile_sha256="C", sim_sha256="S")
     monkeypatch.setitem(sys.modules, "kp", SimpleNamespace())
-    monkeypatch.setattr(usb_run, "preflight", lambda a, kp: (nef, {}, list(range(48)), 1, "fixture"))
+    monkeypatch.setattr(usb_run, "preflight", lambda a, kp: (nef.read_bytes(), {}, list(range(48)), 1, "fixture"))
     usb_run.run(args)
     receipt = load_json(args.out / "receipt.json")
     assert receipt["passed"] and receipt["verified_offline_cases"] == 48 and not receipt["physical_execution"]
