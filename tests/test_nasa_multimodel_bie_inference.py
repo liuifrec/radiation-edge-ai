@@ -112,3 +112,13 @@ def test_every_returned_scalar_matches_numeric_native_input_ordinal(tmp_path):
     decoded[2], decoded[12] = decoded[12], decoded[2]
     with pytest.raises(ValueError, match="ordering mismatch"):
         worker.verify_native_dumps(tmp_path, decoded, codes)
+
+
+def test_duplicate_training_codes_cannot_prove_order():
+    with pytest.raises(ValueError, match="Inconclusive"):
+        worker.training_witnesses([{"bie_fixed_code": 5}, {"bie_fixed_code": "5"}])
+
+
+def test_training_witness_selection_uses_first_distinct_codes_in_frozen_order():
+    rows = [{"sample_id": str(i), "bie_fixed_code": code} for i, code in enumerate([5, 5, -7, 19])]
+    assert worker.training_witnesses(rows) == [rows[0], rows[2]]

@@ -1,4 +1,4 @@
-"""Stage held-out development inputs and replay both FP32 graphs for the ResNet18 pilot.
+"""Stage held-out development inputs and replay both archived FP32 graphs.
 
 Run with the campaign's scientific Python. The vendor worker consumes the staged
 .npy files and their hashes in inputs.csv. Each output directory is single-use.
@@ -13,6 +13,8 @@ from pathlib import Path, PureWindowsPath
 
 from . import multimodel as mm
 from . import multimodel_ptq as ptq
+from . import multimodel_qualification as mobile
+from .deployment_cohort import cohort_identity
 
 
 DATA_ROOT = PureWindowsPath(r"D:\radiation-edge-ai-data")
@@ -46,9 +48,6 @@ def frozen_inputs(data_root, policy_path, policy_sha256, artifacts):
         artifacts[name] = mm._check_sha(path, digest)
         return path
 
-    def local(path):
-        return recorded_data_path(data_root, path)
-
     ptq.require(policy_sha256 == ptq.V1_POLICY_SHA, "Unrecognized prospective V1 policy identity")
     record("policy", policy_path, policy_sha256)
     policy = ptq.load_json(policy_path)
@@ -68,32 +67,47 @@ def frozen_inputs(data_root, policy_path, policy_sha256, artifacts):
                                   worker["optimized_fp32_parity_receipt_sha256"]))
     record("calibration_fp32_pairs", pilot / "fp32_optimized_parity/fp32_optimized_parity.csv",
            parity["predictions_sha256"])
-    campaign = ptq.load_json(record("campaign", data_root / "scratch" / SCREEN / "screen_receipt.json",
-                                    host["screen_campaign_sha256"]))
-    case, = (c for c in campaign["cases"] if (c["architecture"], c["fold"]) == (ptq.ARCH, ptq.FOLD))
-    screen_path = record("screen", local(case["screen_report"]), ptq.EXPECTED_SCREEN_SHA)
-    screen = ptq.load_json(screen_path)
-    export_dir = local(case["host_export_dir"])
-    export = ptq.load_json(record("export", export_dir / "export.json", ptq.EXPECTED_EXPORT_SHA))
-    record("source_onnx", export_dir / case["onnx_name"], ptq.EXPECTED_SOURCE_SHA)
-    record("optimized_onnx", screen_path.with_name("optimized.onnx"), screen["optimized_onnx_sha256"])
-    record("calibration_manifest", export_dir / "calibration_manifest.csv", export["calibration"]["sha256"])
-    run_path = record("training_run", local(export["training_run"]["path"]), ptq.EXPECTED_TRAIN_SHA)
-    run = ptq.load_json(run_path)
-    record("checkpoint", local(run["checkpoint"]["path"]), run["checkpoint"]["sha256"])
+    run, image_root = campaign_inputs(
+        data_root, policy, artifacts, ptq.EXPECTED_SCREEN_SHA, ptq.EXPECTED_EXPORT_SHA,
+        host["screen_campaign_sha256"])
     for key in ("source_onnx", "optimized_onnx", "calibration_manifest"):
         ptq.require(worker["input"][key]["sha256"] == artifacts[key]["sha256"],
                     f"PTQ consumed different {key}")
+    return run, image_root
+
+
+def campaign_inputs(data_root, identities, artifacts, screen_sha, export_sha, campaign_sha):
+    def local(path):
+        return recorded_data_path(data_root, path)
+
+    def record(name, path, digest):
+        artifacts[name] = mm._check_sha(path, digest)
+        return path
+
+    campaign = ptq.load_json(record("campaign", data_root / "scratch" / SCREEN / "screen_receipt.json",
+                                    campaign_sha))
+    case, = (c for c in campaign["cases"] if (c["architecture"], c["fold"]) ==
+             (identities["architecture"], identities["fold"]))
+    screen_path = record("screen", local(case["screen_report"]), screen_sha)
+    screen = ptq.load_json(screen_path)
+    export_dir = local(case["host_export_dir"])
+    export = ptq.load_json(record("export", export_dir / "export.json", export_sha))
+    record("source_onnx", export_dir / case["onnx_name"], identities["source_onnx_sha256"])
+    record("optimized_onnx", screen_path.with_name("optimized.onnx"), screen["optimized_onnx_sha256"])
+    record("calibration_manifest", export_dir / "calibration_manifest.csv", export["calibration"]["sha256"])
+    run_path = record("training_run", local(export["training_run"]["path"]), identities["training_run_sha256"])
+    run = ptq.load_json(run_path)
+    record("checkpoint", local(run["checkpoint"]["path"]), run["checkpoint"]["sha256"])
     for key in ("source_onnx", "optimized_onnx", "training_run"):
-        ptq.require(artifacts[key]["sha256"] == policy[key + "_sha256"], f"Policy mismatch for {key}")
+        ptq.require(artifacts[key]["sha256"] == identities[key + "_sha256"], f"Policy mismatch for {key}")
     for key in ("manifest", "reference", "reference_freeze", "verified_image_inventory"):
         item = run["dataset"][key]
         record(key, local(item["path"]), item["sha256"])
-    ptq.require(artifacts["manifest"]["sha256"] == policy["development_manifest_sha256"] == mm.MANIFEST_SHA256
-                and artifacts["reference"]["sha256"] == policy["nasa_reference_sha256"] == mm.REFERENCE_SHA256,
+    ptq.require(artifacts["manifest"]["sha256"] == identities["development_manifest_sha256"] == mm.MANIFEST_SHA256
+                and artifacts["reference"]["sha256"] == identities["nasa_reference_sha256"] == mm.REFERENCE_SHA256,
                 "Changed cohort or reference")
-    record("fp32_nuclei", run_path.with_name("nucleus_predictions.csv"), policy["fp32_nuclei_sha256"])
-    record("fp32_bags", run_path.with_name("bag_predictions.csv"), policy["fp32_bags_sha256"])
+    record("fp32_nuclei", run_path.with_name("nucleus_predictions.csv"), identities["fp32_nuclei_sha256"])
+    record("fp32_bags", run_path.with_name("bag_predictions.csv"), identities["fp32_bags_sha256"])
     script = "train_pilot_v1_r1_mil.py"
     record("preprocessing_code", Path(__file__).with_name(script), run["implementation"][script]["sha256"])
     return run, local(run["dataset"]["image_root"])
@@ -177,20 +191,29 @@ def prepare(args):
     pilot = args.data_root.resolve() / "scratch" / PILOT
     ptq.require(pilot not in output.parents and output != pilot, "Preserve the existing PTQ run")
     output.mkdir(parents=True, exist_ok=False)
-    receipt = output / "preparation.json"
+    mobile_stage = getattr(args, "stage_mobilenet_fp32", False)
+    receipt = output / ("fp32_preparation.json" if mobile_stage else "preparation.json")
     artifacts = {}
-    report = {"architecture": ptq.ARCH, "fold": ptq.FOLD, "schema_version": 1,
+    report = {"architecture": mobile.ARCHITECTURE if mobile_stage else ptq.ARCH,
+              "fold": ptq.FOLD, "schema_version": 1,
               "created_utc": utc(), "status": "STARTED", "error": None, "evaluated_nuclei": 0,
               "policy_sha256": args.policy_sha256, "preparation_code_sha256": ptq.sha256(__file__),
               "artifacts": artifacts, "python": platform.python_version(), "numpy": np.__version__,
               "opencv": cv2.__version__, "onnxruntime": ort.__version__, "runtime": "CPUExecutionProvider"}
     ptq.save_json(receipt, report)
     try:
-        run, image_root = frozen_inputs(args.data_root.resolve(), args.policy, args.policy_sha256, artifacts)
+        if mobile_stage:
+            identities = dict(mobile.MOBILE, architecture=mobile.ARCHITECTURE, fold=mobile.FOLD)
+            run, image_root = campaign_inputs(args.data_root.resolve(), identities, artifacts,
+                                              mobile.SCREEN_SHA, mobile.EXPORT_SHA, mobile.CAMPAIGN_SHA)
+        else:
+            run, image_root = frozen_inputs(args.data_root.resolve(), args.policy, args.policy_sha256, artifacts)
         def table(key):
             return mm._read_csv(Path(artifacts[key]["path"]))
         rows = select_held_out(table("manifest"), table("calibration_manifest"), table("fp32_nuclei"),
                                table("fp32_bags"), table("reference"), run["source_split"])
+        if mobile_stage:
+            report.update(cohort_identity(rows))
         verified = mm.verify_images(rows, image_root, table("verified_image_inventory"))
         mm._write_csv(output / "evaluation_image_hashes.csv", verified)
         source, optimized = (graph_session(artifacts[key]["path"], ort)
@@ -208,12 +231,15 @@ def prepare(args):
         for item in artifacts.values():
             mm._check_sha(Path(item["path"]), item["sha256"])
         report.update({key + "_sha256": artifacts[key]["sha256"] for key in
-                       ("source_onnx", "optimized_onnx", "training_run", "bie", "fp32_nuclei", "fp32_bags")})
+                       ("source_onnx", "optimized_onnx", "training_run", "fp32_nuclei", "fp32_bags")})
+        if not mobile_stage:
+            report["bie_sha256"] = artifacts["bie"]["sha256"]
         report.update(input_manifest_sha256=ptq.sha256(output / "inputs.csv"),
                       development_manifest_sha256=artifacts["manifest"]["sha256"],
                       evaluation_image_hashes_sha256=ptq.sha256(output / "evaluation_image_hashes.csv"),
                       evaluated_bags=24, evaluated_sources=run["source_split"]["test_sources"],
-                      input_contract=run["contract"]["input"], status="PREPARATION_COMPLETE")
+                      input_contract=run["contract"]["input"],
+                      status="FP32_PREPARATION_COMPLETE" if mobile_stage else "PREPARATION_COMPLETE")
     except Exception as exc:
         report.update(status="FAILED", error=f"{type(exc).__name__}: {exc}")
         raise
@@ -224,11 +250,16 @@ def prepare(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--policy", type=Path, required=True)
-    parser.add_argument("--policy-sha256", required=True)
+    parser.add_argument("--policy", type=Path)
+    parser.add_argument("--policy-sha256")
+    parser.add_argument("--stage-mobilenet-fp32", action="store_true",
+                        help="Stage original and optimized MobileNetV2 ONNX inputs before fixed readout.")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--data-root", type=Path, default=Path(str(DATA_ROOT)))
-    prepare(parser.parse_args())
+    args = parser.parse_args()
+    if not args.stage_mobilenet_fp32 and not (args.policy and args.policy_sha256):
+        parser.error("--policy and --policy-sha256 are required for a bound evaluation")
+    prepare(args)
 
 
 if __name__ == "__main__":

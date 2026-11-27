@@ -1,4 +1,4 @@
-"""Evaluate prepared ResNet18 female-fold tensors on the KL720 Dynasty fixed simulator.
+"""Evaluate prepared female-fold tensors on the KL720 Dynasty fixed simulator.
 
 Run with the pinned toolchain Python 3.7. Each call to inference_dynasty_fx takes
 a list of independent batch-one inputs. Its float results are decoded fixed-point
@@ -24,13 +24,19 @@ from pathlib import Path
 import numpy as np
 
 if __package__:
+    from . import multimodel_qualification as mobile
+    from .deployment_cohort import require_cohort
     from .multimodel_ptq import ARCH, FOLD, EXPECTED_SOURCE_SHA, EXPECTED_TRAIN_SHA, IMAGE_ID
     from .multimodel_ptq import FIXED_SIM_API, FIXED_SIM_SHA, V1_POLICY_SHA, checked_csv
     from .multimodel_ptq import load_json, require, save_json, sha256
+    from .multimodel_ptq import calibration_path, checked_rows, read_calibration_array
 else:
+    import multimodel_qualification as mobile
+    from deployment_cohort import require_cohort
     from multimodel_ptq import ARCH, FOLD, EXPECTED_SOURCE_SHA, EXPECTED_TRAIN_SHA, IMAGE_ID
     from multimodel_ptq import FIXED_SIM_API, FIXED_SIM_SHA, V1_POLICY_SHA, checked_csv
     from multimodel_ptq import load_json, require, save_json, sha256
+    from multimodel_ptq import calibration_path, checked_rows, read_calibration_array
 
 
 EXPECTED = {
@@ -49,17 +55,29 @@ def utc():
     return datetime.now(timezone.utc).isoformat()
 
 
-def load_inputs(root, prep_sha, policy_sha):
+def load_inputs(root, prep_sha, policy_sha, policy=None):
     prep = root / "preparation.json"
     require(sha256(prep) == prep_sha, "Preparation receipt SHA256 mismatch")
     p = load_json(prep)
-    require(all(p.get(k) == v for k, v in EXPECTED.items()), "Model or development cohort mismatch")
+    if policy is None:
+        require(policy_sha == V1_POLICY_SHA, "Unrecognized prospective ResNet18 policy")
+        expected = EXPECTED
+    else:
+        mobile.verify_policy(policy, policy_sha)
+        expected = {k: policy[k] for k in EXPECTED}
+        for key in ("cohort_membership_sha256", "contrast_membership_sha256", "fp32_preparation_sha256"):
+            require(p.get(key) == policy[key], "Preparation differs from frozen policy: " + key)
+    require(all(p.get(k) == v for k, v in expected.items()), "Model or development cohort mismatch")
     require(p.get("status") == "PREPARATION_COMPLETE" and p.get("evaluated_nuclei") == 2400
-            and p.get("error") is None and p.get("policy_sha256") == policy_sha
-            and policy_sha == V1_POLICY_SHA, "Incomplete or mismatched preparation")
+            and p.get("error") is None and p.get("policy_sha256") == policy_sha,
+            "Incomplete or mismatched preparation")
     raw = (root / "inputs.csv").read_bytes()
     require(hashlib.sha256(raw).hexdigest() == p["input_manifest_sha256"], "Input manifest changed")
     rows = checked_csv(io.StringIO(raw.decode("utf-8-sig"), newline=""))
+    if policy is not None:
+        staged = root / "fp32_preparation.json"
+        mobile.verify_staged_manifest(load_json(staged), sha256(staged), p["input_manifest_sha256"], policy)
+        require_cohort(rows, policy)
     require(len(rows) == 2400 and all(r["fold"] == FOLD for r in rows), "Expected all female-fold nuclei")
     for key in ("sample_id", "nucleus_key", "array_file"):
         require(len({r[key] for r in rows if r[key]}) == 2400, "Missing or repeated " + key)
@@ -147,7 +165,67 @@ def native_batch(fx, model, model_io, arrays, work, jobs):
     return decoded, raw
 
 
-def simulator_probe(ktc, fx, model, model_io, out, jobs):
+def training_witnesses(predictions):
+    seen, witnesses = set(), []
+    for row in predictions:
+        code = int(row["bie_fixed_code"])
+        if code not in seen:
+            seen.add(code)
+            witnesses.append(row)
+        if len(witnesses) == 2:
+            return witnesses
+    raise ValueError("Inconclusive fixed output order: selected training pilot has fewer than two distinct codes")
+
+
+def training_probe(ktc, fx, model, model_io, args, policy):
+    pilot = args.training_pilot / "training_pilot.json"
+    require(sha256(pilot) == policy["training_pilot_sha256"], "Changed technical training pilot")
+    details = load_json(pilot)
+    predictions = args.training_pilot / "training_predictions.csv"
+    require(details["status"] == "TRAINING_CHARACTERIZATION_COMPLETE" and
+            details["bie_sha256"] == policy["bie_sha256"] and sha256(predictions) == details["predictions_sha256"],
+            "Changed training-only ordering witnesses")
+    witnesses = training_witnesses(checked_rows(predictions))
+    path = args.calibration / "calibration_manifest.csv"
+    require(sha256(path) == policy["calibration_manifest_sha256"], "Changed training calibration manifest")
+    members = {r["sample_id"]: r for r in checked_rows(path)}
+    arrays, singles, codes = [], [], []
+    for row in witnesses:
+        member = members[row["sample_id"]]
+        require(member[FOLD] == "train" and member["dataset_role"] == "development_train_ptq_calibration"
+                and member["array_sha256"] == row["array_sha256"], "Invalid training order witness")
+        arr = read_calibration_array(calibration_path(args.calibration, member["array_file"]), row["array_sha256"])
+        arrays.append(arr)
+        single = ktc.kneron_inference([arr], input_names=["input"], bie_file=str(model), platform=720,
+                                      data_type="float")
+        require(len(single) == 1, "Unexpected public singleton output count")
+        singles.extend(scalar_outputs({"burden": single}, 1))
+        fixed = ktc.kneron_inference([arr], input_names=["input"], bie_file=str(model), platform=720,
+                                     data_type="fixed")
+        require(len(fixed) == 1, "Unexpected public fixed singleton output count")
+        codes.extend(scalar_outputs({"burden": fixed}, 1, fixed=True))
+        require(codes[-1] == int(row["bie_fixed_code"]) and singles[-1] == float(row["bie_burden"]),
+                "Public float/fixed singleton does not reproduce training pilot witness")
+    receipts = []
+    for label, order in (("aba", (0, 1, 0)), ("bab", (1, 0, 1))):
+        with tempfile.TemporaryDirectory() as temp:
+            work = Path(temp)
+            path = args.out / ("training_order_" + label + ".zip")
+            try:
+                decoded, raw = native_batch(fx, model, model_io, [arrays[n] for n in order], work, args.jobs)
+            finally:
+                with zipfile.ZipFile(str(path), "x", zipfile.ZIP_DEFLATED) as archive:
+                    capture_chunk(work, archive)
+        require(decoded == [singles[n] for n in order] and raw == [codes[n] for n in order],
+                "Native batch output differs from training singleton order: " + label)
+        receipts.append({"sample_ids": [witnesses[n]["sample_id"] for n in order],
+                         "decoded": decoded, "fixed_codes": raw, "logs_sha256": sha256(path)})
+    return {"sample_ids": [r["sample_id"] for r in witnesses],
+            "array_sha256": [r["array_sha256"] for r in witnesses], "public_burden": singles,
+            "public_fixed_codes": codes, "batches": receipts}
+
+
+def simulator_probe(ktc, fx, model, model_io, out, jobs, args=None, policy=None):
     zero = np.zeros(SHAPE, np.float32)
     fitc, dapi = zero.copy(), zero.copy()
     fitc[:, 0, 64:188, 64:188] = 1
@@ -169,18 +247,25 @@ def simulator_probe(ktc, fx, model, model_io, out, jobs):
         finally:
             with zipfile.ZipFile(str(out / "synthetic_sdk_logs.zip"), "x", zipfile.ZIP_DEFLATED) as archive:
                 capture_chunk(work, archive)
-    require(decoded == singles and len(set(raw)) == len(raw),
+    require(decoded == singles,
             "Native multi-image fixed-point outputs disagree with the ordered single-image calls")
-    return {"inputs": ["zero", "fitc_patch", "dapi_patch"], "public_burden": singles,
+    report = {"inputs": ["zero", "fitc_patch", "dapi_patch"], "public_burden": singles,
             "native_burden": decoded, "native_fixed_codes": raw, "single_seconds": single_seconds,
             "native_seconds_including_log_capture": time.monotonic() - started,
             "logs_sha256": sha256(out / "synthetic_sdk_logs.zip")}
+    if len(set(raw)) == len(raw):
+        report["ordering_verified_by"] = "distinct_synthetic_codes"
+    else:
+        require(policy is not None, "Inconclusive synthetic fixed-point output order")
+        report["training_witnesses"] = training_probe(ktc, fx, model, model_io, args, policy)
+        report["ordering_verified_by"] = "training_singletons_and_alternating_batches"
+    return report
 
 
 def run(args):
     args.out.mkdir(parents=True, exist_ok=False)
     receipt = args.out / "bie_receipt.json"
-    report = dict(EXPECTED, status="STARTED", started_utc=utc(), error=None, evaluated_nuclei=0,
+    report = dict(status="STARTED", started_utc=utc(), error=None, evaluated_nuclei=0,
                   preparation_sha256=args.preparation_sha256, policy_sha256=args.policy_sha256,
                   image_id=IMAGE_ID, chunks=[], jobs=args.jobs, chunk_size=args.chunk_size,
                   worker_sha256=sha256(__file__), sdk_api=FIXED_SIM_API,
@@ -190,23 +275,31 @@ def run(args):
         import ktc
         from sys_flow.inference import get_model_io, inference_dynasty_fx
 
-        rows, prep = load_inputs(args.inputs, args.preparation_sha256, args.policy_sha256)
+        policy = None
+        if getattr(args, "policy", None):
+            require(sha256(args.policy) == args.policy_sha256, "Policy bytes differ from frozen digest")
+            policy = load_json(args.policy)
+        rows, prep = load_inputs(args.inputs, args.preparation_sha256, args.policy_sha256, policy)
+        report.update({k: prep[k] for k in EXPECTED})
+        if policy is not None:
+            report.update({k: prep[k] for k in ("cohort_membership_sha256", "contrast_membership_sha256",
+                                                 "fp32_preparation_sha256")})
         report.update(input_manifest_sha256=prep["input_manifest_sha256"], python_version=sys.version,
                       sdk_module_sha256=sha256(inspect.getfile(inference_dynasty_fx)),
                       public_api_sha256=sha256(inspect.getfile(ktc.kneron_inference)))
         require(report["sdk_module_sha256"] == FIXED_SIM_SHA, "Unexpected fixed-point SDK identity")
-        require(sha256(args.bie) == EXPECTED["bie_sha256"], "Frozen BIE SHA256 mismatch")
+        require(sha256(args.bie) == report["bie_sha256"], "Frozen BIE SHA256 mismatch")
         chunks = args.out / "chunks"
         chunks.mkdir()
         with tempfile.TemporaryDirectory() as storage:
             model = Path(storage) / "model.bie"
             shutil.copyfile(str(args.bie), str(model))
-            require(sha256(model) == EXPECTED["bie_sha256"], "Simulator model copy changed")
+            require(sha256(model) == report["bie_sha256"], "Simulator model copy changed")
             schema = get_model_io(model, 720)
             require(schema[0] == ["input"] and schema[1] == ["burden"] and
                     tuple(schema[2]["burden"]) == (1,), "Unexpected BIE tensor contract")
             report["synthetic_probe"] = simulator_probe(ktc, inference_dynasty_fx, model, schema,
-                                                        args.out, args.jobs)
+                                                        args.out, args.jobs, args, policy)
             report["status"] = "SIMULATING"
             save_json(receipt, report)
             predictions = args.out / "bie_nuclei.csv"
@@ -246,8 +339,8 @@ def run(args):
                     report["evaluated_nuclei"] += len(subset)
                     save_json(receipt, report)
                     print("Completed {}/{} nuclei".format(report["evaluated_nuclei"], len(rows)), flush=True)
-            require(sha256(model) == EXPECTED["bie_sha256"], "Working BIE changed during simulation")
-        require(sha256(args.bie) == EXPECTED["bie_sha256"] and
+            require(sha256(model) == report["bie_sha256"], "Working BIE changed during simulation")
+        require(sha256(args.bie) == report["bie_sha256"] and
                 sha256(args.inputs / "inputs.csv") == report["input_manifest_sha256"] and
                 sha256(args.inputs / "preparation.json") == args.preparation_sha256,
                 "Input evidence changed during simulation")
@@ -266,6 +359,9 @@ def main():
     for name in ("inputs", "bie", "out"):
         p.add_argument("--" + name, type=Path, required=True)
     p.add_argument("--policy-sha256", required=True)
+    p.add_argument("--policy", type=Path, help="Frozen MobileNetV2 binding JSON")
+    p.add_argument("--training-pilot", type=Path)
+    p.add_argument("--calibration", type=Path)
     p.add_argument("--preparation-sha256", required=True)
     p.add_argument("--jobs", type=int, choices=range(1, 7), default=3)
     p.add_argument("--chunk-size", type=int, choices=range(1, 49), default=24)

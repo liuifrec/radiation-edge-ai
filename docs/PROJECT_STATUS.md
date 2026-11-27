@@ -40,7 +40,7 @@ manual annotations or NASA references identifies task performance.
 | NASA R1 v2 / R1CountNetV1 | Historical physical validation is recorded in the repository; a fresh 2,058-nucleus replay was reported | Original seven biological-fidelity criteria passed within the documented cohort; retain as the NASA reference | [E01](PROGRESS_EVIDENCE_20261124.md#e01-nasa-r1-v2) |
 | DNAi v3 | Repeated 27-window physical replays and downstream reproduction reported | Retain as the physical DNA-fiber reference; three-field characterization is not broad human-ground-truth validation | [E04](PROGRESS_EVIDENCE_20261124.md#e04-dnai-reference-and-candidates) |
 | Spotiflow `general` | Archived physical receipt for all 63 engineering inputs verified offline against the qualified higher-precision NEF and input identities | Hardware-qualified for this configuration. Native NASA bag MAE was 11.724 foci/nucleus. NASA biological accuracy remains unqualified. | [E05](PROGRESS_EVIDENCE_20261124.md#e05-pretrained-native-screen), [E06](PROGRESS_EVIDENCE_20261124.md#e06-spotiflow-conversion-and-physical-qualification) |
-| New NASA MobileNetV2 | GPU training completed; eligible trained exports and vendor graph support reported; male-1 export excluded | Promising development performance; no completed new physical NASA qualification | [E02](PROGRESS_EVIDENCE_20261124.md#e02-three-model-nasa-campaign) |
+| NASA MobileNetV2 | Female-fold training FP32 parity and standard INT8 PTQ passed. A real KL720 fixed simulator evaluated 2,400 paired development nuclei. | Seven of eight engineering gates passed. Mean absolute bag shift was 0.084169 foci/nucleus (limit 0.05). NEF compilation is blocked. Male-1 remains excluded. | [Qualification, source metrics and reproducibility](NASA_MOBILENET_V2_FEMALE_QUALIFICATION.md) |
 | New NASA ResNet18 | Offline recovery re-ran both FP32 graphs on all 192 original training inputs and re-scored 2,400 archived BIE outputs | Six of eight frozen limits passed. Mean and maximum absolute bag shifts failed. The female-fold BIE remains ineligible for NEF compilation. | [Recovery and replay](NASA_POC_PTQ_RECOVERY.md) |
 | DNAi v4 / v5 | V4 physical characterization reported; v5 conversion and diagnostic results retained | Grader-supported losses remain; both experimental, with v3 retained | [E04](PROGRESS_EVIDENCE_20261124.md#e04-dnai-reference-and-candidates) |
 | Spotiflow `synth_complex` | Six of 63 original ONNX cases exceeded the frozen raw-output tolerance | Conversion blocked; preserved spot counts do not override the failed raw-output gate | [E06](PROGRESS_EVIDENCE_20261124.md#e06-spotiflow-conversion-and-physical-qualification) |
@@ -112,10 +112,10 @@ artifact backup and a restoration check remain unconfirmed here. See
    Windows source, reconcile it with current main, expose the three reference
    pipelines through a consistent catalogue, and run their existing regression
    panels. Keep task-specific result payloads and separate accuracy statuses.
-2. **Complete an additional NASA architecture.** Choose one eligible checkpoint
-   and a bounded conversion experiment before reading its paired results.
-   MobileNetV2 is a reasonable candidate from the reported development results;
-   male-1 remains excluded. A single-fold success is partial development evidence.
+2. **Locate the MobileNetV2 conversion error.** The female-fold readout failed
+   the mean absolute bag shift gate. On prespecified training inputs, compare
+   the fixed pooled features and the FP32 head before choosing another precision
+   recipe. Male-1 remains excluded. Independent confirmation needs unused sources.
 3. **Expand the pretrained queue deliberately.** Assess endpoint relevance,
    native accuracy, complete-graph compatibility and conversion cost. Hardware
    qualification can justify retaining an implementation without NASA promotion.
