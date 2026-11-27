@@ -1,0 +1,34 @@
+{
+  "schema": "nasa_resnet18_neural16_nef_qualification_v1",
+  "scope": "KL720 compile integrity and numerical transport parity on frozen training witnesses",
+  "development_policy_sha256": "94a7ba514a32676c32b30f745faab5c037b729de89e3c8d29d5e854ffe656cc8",
+  "bie_sha256": "3f654f267ae280f27d6aaf6715b32af4285c5de6f4eb13c844e02e70f2f69c9b",
+  "training_manifest_sha256": "fecec721ddf8ad424ed9f5ac13594a0488d2fe6805aa0031aff11c18a602113a",
+  "training_predictions_sha256": "e170017ede26e851a253eda87f33d609663b3641c81b89b3a2b8c3bb8eb73e82",
+  "model_id": 32783,
+  "model_version": "0001",
+  "target": "KL720",
+  "image_id": "sha256:2207d99c9f78deef90647a3da3047ec3f7942ec689385a586fee476f77e89041",
+  "compile_prerequisite": "complete authenticated 2400-nucleus development run and independent audit agreeing on all eight passing decisions",
+  "integrity_smoke": "BPSR1V2D_01501",
+  "panel": "all 48 distinct training witnesses in the original selection",
+  "max_abs_transport_vs_bie_foci_per_nucleus": 0.0001,
+  "relative_tolerance": 0,
+  "tolerance_source": "NASA R1 v2 scalar BIE-to-NEF compile integrity gate",
+  "required_observations": [
+    "compiled and extracted NEF identity, KL720 graph placement and compiler memory allocation",
+    "shape, name, bit width, radix and scale from artifact-bound descriptors",
+    "byte-exact SDK versus host packed input for every case",
+    "actual signed 16-bit CSIM carrier and matching binary32 descriptor for every case",
+    "finite measured carrier decode within the absolute BIE tolerance for each case"
+  ],
+  "diagnostics": [
+    "ordinary CSIM output and public simulator floats may represent different precision paths",
+    "count actual 16-bit transport words equal to twice the signed native BIE code",
+    "keep IP estimates, compiler wall time, simulator wall time and physical timings separate"
+  ],
+  "physical_smoke": "one named positive training witness after full simulator pass and operator approval",
+  "physical_panel": "48 sealed engineering witnesses after passing approved physical smoke",
+  "physical_comparison": "byte-identical input and exact signed output word against authenticated NEF CSIM, exact descriptor and matching finite PLUS float",
+  "development_biological_scope": "previously examined female cohort; separate independent biological confirmation required"
+}
