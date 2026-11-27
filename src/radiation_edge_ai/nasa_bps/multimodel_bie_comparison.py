@@ -27,6 +27,8 @@ from statistics import mean
 
 from .multimodel_ptq import V1_POLICY_SHA, checked_rows, load_json, require, save_json, sha256
 from .multimodel_ptq import FIXED_SIM_API, FIXED_SIM_SHA, IMAGE_ID
+from . import multimodel_qualification as mobile
+from .deployment_cohort import require_cohort
 
 
 IDENTITIES = ("training_run_sha256", "source_onnx_sha256", "bie_sha256",
@@ -255,7 +257,10 @@ def compare(args):
             "Architecture/fold lacks a passing trained export and screen")
     limits = policy["maximums"]
     if v1:
-        require(args.policy_sha256 == V1_POLICY_SHA, "Unrecognized prospective V1 policy identity")
+        if policy["architecture"] == mobile.ARCHITECTURE:
+            mobile.verify_policy(policy, args.policy_sha256)
+        else:
+            require(args.policy_sha256 == V1_POLICY_SHA, "Unrecognized prospective V1 policy identity")
         require(limits == V1_LIMITS and policy.get("strong_effect_min_abs_fp32_delta") == 0.20,
                 "Incomplete or changed V1 acceptance declaration")
         require(all(getattr(args, k, None) for k in
@@ -298,6 +303,14 @@ def compare(args):
         require(all(receipt.get(k) == value for k, value in provenance.items()) and
                 preparation["input_manifest_sha256"] == provenance["input_manifest_sha256"],
                 "Simulator and FP32 preparation identities differ")
+        if policy["architecture"] == mobile.ARCHITECTURE:
+            staged = args.preparation_receipt.with_name("fp32_preparation.json")
+            mobile.verify_staged_manifest(load_json(staged), sha256(staged), provenance["input_manifest_sha256"],
+                                          policy)
+            for key in ("cohort_membership_sha256", "contrast_membership_sha256", "fp32_preparation_sha256"):
+                require(preparation.get(key) == receipt.get(key) == policy[key],
+                        "MobileNetV2 readout binding mismatch: " + key)
+                provenance[key] = policy[key]
     record = {
         "scope": "source_held_out_development_fold", "fold": policy["fold"],
         "architecture": policy["architecture"], "policy": policy, "policy_sha256": args.policy_sha256,
@@ -310,12 +323,16 @@ def compare(args):
                 receipt.get("evaluated_nuclei") == 2400 and receipt.get("error") is None,
                 "A completed 2400-nucleus BIE simulation receipt is required")
         reference_bags = read_rows(args.fp32_bags)
+        original = read_rows(args.fp32_nuclei)
+        manifest = read_rows(args.development_manifest)
+        prepared = read_rows(args.prepared_inputs) if v1 else None
         if v1:
             verify_targets(args.nasa_reference, reference_bags, policy["fold"])
+            if policy["architecture"] == mobile.ARCHITECTURE:
+                for panel in (prepared, original, [r for r in manifest if r[policy["fold"]] == "test"]):
+                    require_cohort(panel, policy)
         nuclei, bags, contrasts, summary, metrics = score_rows(
-            read_rows(args.fp32_nuclei), read_rows(args.bie_nuclei), reference_bags,
-            read_rows(args.development_manifest), policy["fold"],
-            read_rows(args.prepared_inputs) if v1 else None)
+            original, read_rows(args.bie_nuclei), reference_bags, manifest, policy["fold"], prepared)
     except (ValueError, KeyError, OverflowError) as exc:
         if not v1:
             raise

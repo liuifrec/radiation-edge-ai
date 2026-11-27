@@ -240,3 +240,39 @@ def test_v1_is_specific_to_actual_fixed_simulator_receipts(v1, key, value):
     v1.bie_receipt.write_text(json.dumps(receipt))
     with pytest.raises(ValueError, match="pinned KL720 fixed simulator"):
         compare.compare(v1)
+
+
+@pytest.mark.parametrize("change_membership", [False, True])
+def test_mobilenet_scores_only_the_prospectively_bound_membership(v1, monkeypatch, change_membership):
+    from radiation_edge_ai.nasa_bps.deployment_cohort import cohort_identity
+
+    rows = compare.read_rows(v1.prepared_inputs)
+    identities = cohort_identity(rows)
+    policy = compare.load_json(v1.policy)
+    if change_membership:
+        # A swap preserves every bag count and every radiation contrast.
+        rows[0]["nucleus_key"], rows[-1]["nucleus_key"] = rows[-1]["nucleus_key"], rows[0]["nucleus_key"]
+        write_csv(v1.prepared_inputs, rows)
+    stage = v1.preparation_receipt.with_name("fp32_preparation.json")
+    stage.write_text(json.dumps(dict(status="FP32_PREPARATION_COMPLETE",
+                                     input_manifest_sha256=compare.sha256(v1.prepared_inputs))))
+    policy.update(identities, architecture="mobilenet_v2", fp32_preparation_sha256=compare.sha256(stage))
+    monkeypatch.setattr(compare.mobile, "MOBILE", {k: policy[k] for k in compare.mobile.MOBILE})
+    v1.policy.write_text(json.dumps(policy))
+    v1.policy_sha256 = compare.sha256(v1.policy)
+    monkeypatch.setattr(compare.mobile, "POLICY_SHA", v1.policy_sha256)
+    prep, receipt = (compare.load_json(p) for p in (v1.preparation_receipt, v1.bie_receipt))
+    for target in (prep, receipt):
+        target.update(identities, architecture="mobilenet_v2", policy_sha256=v1.policy_sha256,
+                      fp32_preparation_sha256=policy["fp32_preparation_sha256"],
+                      input_manifest_sha256=compare.sha256(v1.prepared_inputs))
+    v1.preparation_receipt.write_text(json.dumps(prep))
+    receipt["preparation_sha256"] = compare.sha256(v1.preparation_receipt)
+    v1.bie_receipt.write_text(json.dumps(receipt))
+    assert compare.compare(v1) is (not change_membership)
+    report = compare.load_json(v1.out / "comparison.json")
+    assert set(report["decisions"]) == set(compare.V1_LIMITS)
+    assert report["eligible_for_nef_compilation"] is (not change_membership)
+    if change_membership:
+        assert "cohort_membership_sha256" in report["error"]
+        assert report["decisions"]["incomplete_or_nonfinite_panels"]["pass"] is False
