@@ -17,11 +17,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
+from radiation_edge_ai.hardware.deployment_catalogue import DNAI, NASA, RUN_BACKENDS, SPOT
+
 ASSAYS = {
     "nasa-53bp1-r1-v2": "NASA 53BP1: latent burden, not an individual focus count.",
     "dnai-fiber-v3": "DNA fibers: physical execution exists; biological fidelity unvalidated.",
 }
-ACTIONS = ("doctor", "pretrained-models", "device-scan", "run-plan", "run-assay",
+ACTIONS = ("doctor", "pretrained-models", "deployment-models", "deployment-verify", "deployment-run",
+           "device-scan", "run-plan", "run-assay",
            "verify", "export", "tracka-reference")
 CLI_ENTRY = "from radiation_edge_ai.cli import main; raise SystemExit(main())"
 
@@ -100,7 +103,7 @@ class Job:
 
 
 def build_job(settings: Settings, repo: Path, action: str,
-              source: str = "", output: str = "") -> Job:
+              source: str = "", output: str = "", *, model: str = "", selected_backend: str = "") -> Job:
     """Only approved CLI actions; never shell-evaluate user or manifest text."""
     repo = repo.expanduser().resolve()
     if action not in ACTIONS:
@@ -118,7 +121,8 @@ def build_job(settings: Settings, repo: Path, action: str,
     obj = {}
     assay = backend = out = None
     physical = False
-    if action not in ("doctor", "device-scan", "pretrained-models"):
+    if action not in ("doctor", "device-scan", "pretrained-models", "deployment-models",
+                      "deployment-verify", "deployment-run"):
         source_path = file_path(source, "JSON manifest or receipt")
         obj = read_object(source_path)
     if action == "doctor":
@@ -126,6 +130,51 @@ def build_job(settings: Settings, repo: Path, action: str,
     elif action == "pretrained-models":
         command = [str(host), "-u", "-m", "radiation_edge_ai.hardware.pretrained_models",
                    "--list", "--data-root", str(root)]
+    elif action in ("deployment-models", "deployment-verify"):
+        command = [str(host), "-B", "-m", "radiation_edge_ai.hardware.deployment_catalogue",
+                   "--data-root", str(root)]
+        if action == "deployment-verify":
+            if model not in RUN_BACKENDS:
+                raise ValueError("Select a reference model to verify")
+            assay = model
+            command.extend(["--verify", "--model", model])
+    elif action == "deployment-run":
+        if model not in RUN_BACKENDS or selected_backend not in RUN_BACKENDS[model]:
+            raise ValueError("Select a supported model and backend combination")
+        assay, backend = model, selected_backend
+        physical = backend == "kl720"
+        plus = file_path(settings.kl720_python, "existing Kneron PLUS Python") if physical else None
+        scripts = repo / "scripts/windows"
+        if model == NASA:
+            command = [str(plus), "-B", str(scripts / "run_nasa_kl720.py"), "--root", str(root),
+                       "--data-root", str(root / "data"), "--model-root", str(root / "models"),
+                       "--timeout-ms", str(settings.kl720_timeout_ms)]
+        else:
+            scientific = file_path(settings.scientific_python, "scientific Python for the selected model")
+            if model == DNAI:
+                command = [str(scientific), "-B", str(scripts / "run_dnai_hardware_baseline.py"),
+                           "--execute", "--data-root", str(root), "--plus-python", str(plus)]
+            elif model == SPOT:
+                source_path = file_path(source, "grayscale Spotiflow TIFF or NPY")
+                if source_path.suffix.lower() not in (".tif", ".tiff", ".npy"):
+                    raise ValueError("Choose a 2D Spotiflow TIFF or NPY")
+                if not output.strip():
+                    raise ValueError("Choose a NEW output folder under the external data root")
+                destination = Path(output).expanduser().resolve()
+                outside_repository(destination, repo)
+                if not destination.is_relative_to(root) or destination.exists():
+                    raise ValueError("Choose a NEW output folder under the external data root")
+                out = str(destination)
+                command = [str(scientific), "-B", str(scripts / "run_registered_spotiflow.py"),
+                           "--model", "spotiflow/general", "--variant", "full_int16_transport",
+                           "--data-root", str(root), "--backend", backend,
+                           "--image", str(source_path), "--out", out]
+                if physical:
+                    command.extend(["--plus-python", str(plus)])
+        if model in (NASA, DNAI) and (source.strip() or output.strip()):
+            raise ValueError("Clear the input and output fields for the fixed replay; its runner creates a new external run")
+        if physical and port is not None:
+            command.extend(["--port", str(port)])
     elif action == "device-scan":
         plus = file_path(settings.kl720_python, "existing Kneron PLUS Python")
         probe = repo / "src/radiation_edge_ai/hardware/kl720_check.py"
