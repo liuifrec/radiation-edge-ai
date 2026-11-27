@@ -1,5 +1,12 @@
 # Select a model and backend
 
+The experimental `nasa-mobilenetv2` entry identifies the female-fold checkpoint,
+two FP32 graphs, standard INT8 BIE and its completed comparison. Seven of eight
+fidelity gates passed. Mean absolute bag shift was 0.084169 foci/nucleus
+against a limit of 0.05, so the launcher offers no USB backend for this model.
+Use `radedge-deployments --model nasa-mobilenetv2 --data-root $Root --verify`
+to verify the original five artifact hashes. [Campaign PR](https://github.com/liuifrec/radiation-edge-ai/pull/41)
+
 The desktop exposes three reference pipelines. Choose **List all deployment references and candidates** to see engineering status and assay scope. **Verify selected reference artifacts (offline)** checks the listed file hashes under the external data root. These actions do not open USB. The existing pretrained registry still exposes per-stage Spotiflow qualification, licenses, schemas and evidence.
 
 | Model | Selectable backend | Input and output |

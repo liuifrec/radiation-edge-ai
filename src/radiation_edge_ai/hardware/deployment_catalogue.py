@@ -11,6 +11,7 @@ from radiation_edge_ai.hardware.pretrained_models import model_record
 NASA = "nasa-53bp1-r1-v2"
 DNAI = "dnai-fiber-v3"
 SPOT = "spotiflow/general@full_int16_transport"
+MOBILENET = "nasa-mobilenetv2"
 RUN_BACKENDS = {NASA: ("kl720",), DNAI: ("kl720",), SPOT: ("pytorch", "onnx", "kl720")}
 
 NASA_ROOT = "models/nasa_bps_53bp1/r1_v2_deployment/kneron_nef/"
@@ -43,7 +44,7 @@ REFERENCES = {
 }
 CANDIDATES = {
     "nasa-resnet18-female": "INT8 BIE failed two frozen bag-difference limits",
-    "nasa-mobilenetv2": "Development candidate; physical qualification has not been established",
+    MOBILENET: "Female-source development fold, two sources and 24 sample means",
     "dnai-fiber-v4": "Physical characterization recovered one three-grader-supported fiber and lost two",
     "dnai-fiber-v5": "Failed the frozen directional instance-retention criterion",
     "perilipin2": "Full model blocked at KL720 compilation",
@@ -75,6 +76,31 @@ def catalogue():
             }
     for key, reason in CANDIDATES.items():
         rows[key] = {"track": "experimental", "scope": reason, "artifacts": {}}
+    rows[MOBILENET].update(
+        architecture="mobilenet_v2", fold="fold_female_role",
+        endpoint="53BP1 burden aggregated by sample and matched exposed-minus-sham contrasts",
+        scientific="Previously examined source-held-out development cohort",
+        engineering={"training_fp32_parity": "passed", "standard_int8_ptq": "passed",
+                     "bie_fidelity": "failed_mean_absolute_bag_shift", "engineering_gates_passed": 7,
+                     "engineering_gates_total": 8, "nef_compilation": "blocked_by_bie_fidelity",
+                     "physical_kl720": "not_run"},
+        artifacts={
+            "checkpoint": ("models/nasa_bps_53bp1/multimodel_v1_20261117T053459Z_b02f5836/"
+                           "mobilenet_v2/fold_female_role/model.pt",
+                           "bb00a25e2db05334e113852760414adafa22f95614e4c43f92b6607e690bd543"),
+            "onnx": ("models/nasa_bps_53bp1/multimodel_v1_onnx_20261118T002659Z_47b5d92a/"
+                     "mobilenet_v2/fold_female_role/mobilenet_v2_fold_female_role_fp32_opset11.onnx",
+                     "2f18b2330ca3289ab422e1ff47b526b4bfa6a46fc4bd7354346609715f575e45"),
+            "optimized_onnx": ("scratch/nasa_trained_graph_screen_20261118T020501Z_06255b35/"
+                               "vendor/mobilenet_v2_fold_female_role/optimized.onnx",
+                               "75824e1ed4f8520d90a942c1351926b922db9b4284b8b6d7cd5663428e73c074"),
+            "bie": ("scratch/nasa_mobilenet_female_int8_20261126T234932Z_a7c472a7/pilot/quantized_model.bie",
+                    "2102c400d696bc385e23d2d9b978b779e4c95b82661272e6873ac1eb57607e26"),
+            "bie_comparison": ("scratch/nasa_mobilenet_female_bie_readout_20261127T000412Z_e601260b/"
+                               "comparison/comparison.json",
+                               "90e40ad338df96d13ab0b32e3cb8db936509ca7c2d1256cac74e893407a7b6cf"),
+        },
+    )
     return rows
 
 

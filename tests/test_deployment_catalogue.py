@@ -16,6 +16,11 @@ def test_references_and_candidates_keep_independent_decisions():
     assert records["spotiflow/synth_complex@joined_heads"]["engineering"]["onnx_parity"] == "failed"
     assert not records["dnai-fiber-v4"]["desktop_backends"]
     assert not records["dnai-fiber-v5"]["desktop_backends"]
+    mobile = records[directory.MOBILENET]
+    assert mobile["track"] == "experimental" and mobile["desktop_backends"] == []
+    assert mobile["engineering"]["nef_compilation"] == "blocked_by_bie_fidelity"
+    assert mobile["engineering"]["engineering_gates_passed"] == 7
+    assert "bie_comparison" in mobile["artifacts"] and "nef" not in mobile["artifacts"]
     assert all(v["state"] == "unchecked" for m in records.values() for v in m["artifacts"].values())
 
 
