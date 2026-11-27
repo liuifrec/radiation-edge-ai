@@ -116,11 +116,12 @@ linking back to the preserved November 20 milestone.
 
 ## 5. Resume model expansion with a bounded experiment
 
-After the working PoC is reproducible, carry one eligible additional NASA model
-through the complete deployment assessment. Select the checkpoint, fold,
-training-only calibration, applicable criteria and experiment budget before
-opening the new candidate comparison. MobileNetV2 is a reasonable candidate;
-the male-1 export remains excluded until its original parity issue is resolved.
+The selected MobileNetV2 female-fold standard INT8 BIE completed its single
+development-panel readout. Seven gates passed. The failed mean absolute bag shift
+blocks NEF and USB. Next, use training-source features and the original FP32
+head to localize the upstream shift. Preserve male-2 for a separately declared
+campaign and retain the male-1 ONNX parity exclusion.
+[Decision and reproducibility instructions](NASA_MOBILENET_V2_FEMALE_QUALIFICATION.md)
 
 A single-fold success is partial development evidence. Complete the intended
 fold coverage before reporting pooled physical out-of-fold performance. Keep

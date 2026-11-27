@@ -1,5 +1,10 @@
 # MobileNetV2 female-fold KL720 qualification
 
+**Decision: the standard INT8 BIE is ineligible for NEF compilation.** Seven
+of eight prospective engineering criteria passed. The mean absolute shift in
+bag means was 0.084169 foci/nucleus against a 0.05 limit. The campaign ended
+after this single held-out development readout. No NEF or physical run followed.
+
 The candidate is the original trained `mobilenet_v2/fold_female_role` checkpoint,
 model ID 32781. The conversion used Kneron 0.33.1 on the screened optimized graph.
 All model binaries, TIFFs, tensor files, simulator dumps and per-nucleus predictions
@@ -57,6 +62,70 @@ The protocol commit was `b42badec9f4d8e4a41cd8c6b11f5a3cff32f7454`.
 Commit `3e1b2fcfe535f343815d4ebe8cd48640b27148bb` then sealed the BIE and
 prepared FP32 inputs before the development simulation. Only the female fold was
 selected. Male-1 remains excluded on its original ONNX parity result.
+
+## Source-held-out development readout
+
+The original and optimized FP32 predictions agreed exactly on all 2,400
+identical tensors. BIE bag means decreased in 23 of 24 samples. Across the
+24 samples, MAE against NASA increased from 0.506533 to 0.522218 foci/nucleus.
+Both backends agreed on the signs of all 12 matched contrasts and agreed with
+the recorded NASA reference direction on the same 11 of 12 contrasts.
+
+| Prospective criterion | Actual | Limit | Decision |
+| --- | ---: | --- | --- |
+| Mean absolute bag shift | 0.084168942 | ≤ 0.05 | **Fail** |
+| Maximum absolute bag shift | 0.149699343 | ≤ 0.15 | Pass |
+| Mean absolute matched-delta shift | 0.051003744 | ≤ 0.10 | Pass |
+| Maximum absolute matched-delta shift | 0.150380355 | ≤ 0.20 | Pass |
+| Increase in bag MAE against NASA | 0.015684223 | ≤ 0.05 | Pass |
+| Strong-effect sign reversals | 0 | 0 | Pass |
+| Positive four-hour effects | 4/4 | All 4 strictly positive in both backends | Pass |
+| Complete finite paired panel | 2,400 nuclei / 24 bags / 12 contrasts | All, with frozen identities | Pass |
+
+| Source (12 bags, 6 contrasts each) | Signed bag bias | Mean absolute bag shift | Max absolute bag shift | Mean absolute delta shift | FP32 / BIE bag MAE vs NASA |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| BALBCF1 | −0.089906 | 0.089906 | 0.145093 | 0.054533 | 0.579138 / 0.607931 |
+| C57BLF1 | −0.078318 | 0.078432 | 0.149699 | 0.047474 | 0.433929 / 0.436504 |
+
+| Radiation and time | Mean absolute bag shift | Mean absolute matched-delta shift |
+| --- | ---: | ---: |
+| Fe, 4 h | 0.098374 | 0.027409 |
+| Fe, 24 h | 0.070209 | 0.048250 |
+| Fe, 48 h | 0.081786 | 0.038122 |
+| X-ray, 4 h | 0.090505 | 0.103587 |
+| X-ray, 24 h | 0.096088 | 0.065702 |
+| X-ray, 48 h | 0.068050 | 0.022952 |
+
+The largest bag shift occurred in the C57BLF1 four-hour X-ray sham
+(−0.149699). The largest contrast shift was in its X-ray four-hour pair
+(+0.150380), with FP32 delta 1.496026 and BIE delta 1.646406 foci/nucleus.
+The limits apply to the entire preregistered panel. These subgroup summaries
+locate contributions to its result.
+
+Five parallel jobs processed 100 chunks of 24. The Docker simulator stage
+took 2,797.30 seconds and the complete readout launcher took 2,826.23 seconds.
+The native jobs averaged 3.864 seconds per nucleus (median 3.812 seconds).
+These are software-simulator timings. Independent verification checked all
+100 ZIP hashes and CRCs, all 2,400 array hashes and process exit statuses,
+and all 4,800 native signed and decoded scalar dumps against the final table.
+An independent calculation from the two prediction sources reproduced every
+decision. The read-only compile guard also returned exit code 2 for
+`bag_paired_mae`.
+
+| External record | SHA256 |
+| --- | --- |
+| Simulator receipt | `0618ef495e77691f850e1e7bb39a362df2ae776e598397e2d318e9ee60b32cf8` |
+| BIE prediction CSV | `082910c9b7dca9089177eda7ccbe82d77fd449069cebbdb011feddcff0ac0f3d` |
+| Eight-gate comparison | `90e40ad338df96d13ab0b32e3cb8db936509ca7c2d1256cac74e893407a7b6cf` |
+| End-to-end launcher receipt | `c1cf3167379d4e46b66fa974387c3b40049b26f9bf1e56fbb3da4bcd96a211ac` |
+| Native archive, signed-code and process audit | `3e96034f94bfef3ac443d1972cfafea38965a9cfb4fcb0d9c4191e4c8cf0bf10` |
+| Independent gate and source audit | `900b940837115ee34493abe18a1d6aba61af7e5cf305f3339dad73368436ad95` |
+
+Next, measure pooled features and pre-output regression values on prespecified
+training-source nuclei, then apply the original FP32 head to the fixed-point
+features. This distinguishes feature drift from head arithmetic before another
+precision recipe is chosen. An adapted candidate needs separate, prospectively
+bound evaluation. Male-2 was not used as a replacement after this readout.
 
 ## Reproduction on the configured Windows host
 
