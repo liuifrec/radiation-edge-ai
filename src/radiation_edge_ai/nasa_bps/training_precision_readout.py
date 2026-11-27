@@ -147,6 +147,18 @@ def check_float_word(word, actual, descriptor):
     )
 
 
+def check_native_word_bytes(raw, text, row, descriptor):
+    """Compare archived native integer bytes, SDK text and returned float for a scalar."""
+    width = descriptor["width"]
+    ptq.require(len(raw) == (width + 7) // 8, "Unexpected native scalar storage length")
+    word = int.from_bytes(raw, "little", signed=True)
+    ptq.require(
+        word == int(text) == int(row["fixed_word"]), "Native binary and signed words differ"
+    )
+    check_float_word(word, float(row["bie_burden"]), descriptor)
+    return word
+
+
 def run(args):
     import ktc
     from sys_flow.inference import get_model_io, inference_dynasty_fx

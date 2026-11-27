@@ -5,13 +5,18 @@ import json
 import math
 import shutil
 import time
+import zipfile
 from pathlib import Path
 
 from run_mobilenet_training_ptq import docker_run, inputs
 
 from radiation_edge_ai.nasa_bps import multimodel_ptq as ptq
 from radiation_edge_ai.nasa_bps import training_precision as precision
-from radiation_edge_ai.nasa_bps.training_precision_readout import summarize, training_decision
+from radiation_edge_ai.nasa_bps.training_precision_readout import (
+    check_native_word_bytes,
+    summarize,
+    training_decision,
+)
 
 BASE = "nasa_mobilenet_female_int8_20261126T234932Z_a7c472a7"
 PANEL = "mobilenet_feature_training_20261127T015528Z_795ec600/selection.json"
@@ -27,7 +32,7 @@ def score(out, panel):
         and not (out / "selection.json").exists(),
         "Changed selection inputs or existing selection",
     )
-    candidates, receipts = {}, {}
+    candidates, receipts, readouts, audited_words = {}, {}, {}, {}
     for key in ("baseline", "datapath16", "neural16"):
         directory = out / key
         q = None if key == "baseline" else ptq.load_json(directory / "quantization.json")
@@ -41,6 +46,17 @@ def score(out, panel):
             receipts[key] = ptq.sha256(directory / "quantization.json")
             continue
         receipt = directory / "evaluation/readout.json"
+        original_failure = None
+        if (directory / "effective_word_replay").exists():
+            if receipt.exists():
+                previous = ptq.load_json(receipt)
+                ptq.require(
+                    previous["status"] == "FAILED"
+                    and "Unrecognized effective output descriptor" in previous["error"],
+                    "A replacement is allowed only for the recorded decoder guard",
+                )
+                original_failure = ptq.sha256(receipt)
+            receipt = directory / "effective_word_replay/evaluation/readout.json"
         record = ptq.load_json(receipt)
         expected = q["bie"]["sha256"] if q else policy["standard_bie_sha256"]
         ptq.require(
@@ -72,18 +88,39 @@ def score(out, panel):
             and summarize(paired) == record["summary"],
             "Paired results disagree with the sealed panel or summary",
         )
+        checked = 0
         for chunk in record["chunks"]:
             ptq.require(
                 ptq.sha256(receipt.parent / chunk["archive"]) == chunk["archive_sha256"],
                 "Changed native logs",
             )
+            ptq.require(chunk["offset"] == checked, "Incomplete native chunks")
+            with zipfile.ZipFile(receipt.parent / chunk["archive"]) as archive:
+                ptq.require(archive.testzip() is None, "Corrupt native archive")
+                for i in range(chunk["count"]):
+                    suffix = f"/in_{i:06}.txt/mode_720_piano/layer_output_burden_fx.bin"
+                    (binary,) = [p for p in archive.namelist() if p.endswith(suffix)]
+                    check_native_word_bytes(
+                        archive.read(binary),
+                        archive.read(binary[:-3] + "txt"),
+                        paired[checked],
+                        record["output_descriptor"],
+                    )
+                    checked += 1
+        ptq.require(checked == len(paired), "Incomplete native binary coverage")
+        audited_words[key] = checked
         receipts[key] = ptq.sha256(receipt)
+        readouts[key] = receipt.relative_to(out).as_posix()
+        if original_failure:
+            receipts[key + "_original_decoder_guard"] = original_failure
         candidates[key] = record
     decision = training_decision(candidates.pop("baseline"), candidates)
     decision.update(
         policy_sha256=precision.POLICY_SHA256,
         panel_sha256=ptq.sha256(panel),
         receipt_sha256=receipts,
+        readouts=readouts,
+        signed_native_binary_words=audited_words,
     )
     ptq.save_json(out / "selection.json", decision)
 
@@ -125,14 +162,34 @@ def verified_trigger(receipt, panel):
     raise ValueError("No qualifying original BIE upstream observation")
 
 
-def run(root, out, stage, trigger=None):
+def run(root, out, stage, trigger=None, replay=False):
     baseline = root / "scratch" / BASE
     panel = root / "scratch" / PANEL
     ptq.require(out.parent == root / "scratch" and ROOT not in out.parents, "Use external scratch")
     out.mkdir(exist_ok=True)
     if stage == "score":
         return score(out, panel)
-    directory = out / stage
+    recipe_dir = out / stage
+    directory = recipe_dir / "effective_word_replay" if replay else recipe_dir
+    if replay:
+        ptq.require(stage in precision.RECIPES, "Decoder replay requires a generated candidate")
+        old_path = recipe_dir / "evaluation/readout.json"
+        q = ptq.load_json(recipe_dir / "quantization.json")
+        if old_path.exists():
+            old = ptq.load_json(old_path)
+            ptq.require(
+                old["status"] == "FAILED"
+                and "Unrecognized effective output descriptor" in old["error"]
+                and old["recipe"] == stage
+                and old["bie"]["sha256"] == q["bie"]["sha256"],
+                "Existing readout is ineligible for effective-word replay",
+            )
+        ptq.require(
+            q["status"] == "TRAINING_BIE_GENERATED"
+            and q["recipe"] == stage
+            and ptq.sha256(recipe_dir / q["bie"]["path"]) == q["bie"]["sha256"],
+            "Complete conversion and unchanged BIE required",
+        )
     directory.mkdir(exist_ok=False)
     policy = ptq.load_json(POLICY)
     ptq.require(
@@ -173,7 +230,10 @@ def run(root, out, stage, trigger=None):
         "physical_execution": False,
         "nef_compiled": False,
     }
-    if stage != "baseline":
+    if replay:
+        host["original_readout_sha256"] = ptq.sha256(old_path) if old_path.exists() else None
+        host["original_quantization_sha256"] = ptq.sha256(recipe_dir / "quantization.json")
+    elif stage != "baseline":
         ptq.require(
             trigger is not None and trigger.is_file(),
             "External verified baseline attribution required",
@@ -186,6 +246,14 @@ def run(root, out, stage, trigger=None):
             bie = baseline / "pilot/quantized_model.bie"
             mounts.append((bie, "/baseline.bie"))
             options = ["--bie", "/baseline.bie"]
+        elif replay:
+            mounts.extend(
+                [
+                    (recipe_dir / q["bie"]["path"], "/candidate.bie"),
+                    (recipe_dir / "quantization.json", "/quantization.json"),
+                ]
+            )
+            options = ["--bie", "/candidate.bie", "--quantization", "/quantization.json"]
         else:
             docker_run(
                 directory / "docker_ptq.log",
@@ -263,5 +331,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--trigger", type=Path, help="Baseline upstream attribution evidence for corrective runs"
     )
+    parser.add_argument(
+        "--replay-effective-word",
+        action="store_true",
+        help="Rerun a preserved BIE after the original effective-width decoder guard",
+    )
     args = parser.parse_args()
-    run(args.data_root.resolve(), args.out.resolve(), args.stage, args.trigger)
+    run(
+        args.data_root.resolve(),
+        args.out.resolve(),
+        args.stage,
+        args.trigger,
+        args.replay_effective_word,
+    )

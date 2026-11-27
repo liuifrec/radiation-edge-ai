@@ -5,12 +5,18 @@ supplies a prospectively sealed recipe, input set and separate output mount.
 """
 
 import argparse
+import ast
 import ctypes
 import inspect
+import json
+import math
 import os
 import re
+import sys
+import textwrap
 import time
 import xml.etree.ElementTree as ET
+import zipfile
 from collections import Counter
 from pathlib import Path
 
@@ -189,6 +195,23 @@ def scalar_descriptor(model, out):
     dump(720, os.fsencode(model), os.fsencode(out))
     meta = ptq.load_json(out / "SnrShapeInfo.json")
     radix = ptq.load_json(out / "radix.json")
+    with zipfile.ZipFile(str(model)) as archive:
+        ptq.require(
+            archive.namelist().count("ioinfo.json") == 1,
+            "Missing or ambiguous transport descriptor",
+        )
+        data = archive.read("ioinfo.json")
+        (out / "ioinfo.json").write_bytes(data)
+    result = scalar_domains(meta, radix, json.loads(data))
+    result.update(
+        libs_sha256=ptq.sha256(libs),
+        metadata={p.name: ptq.sha256(p) for p in out.iterdir() if p.is_file()},
+    )
+    return result
+
+
+def scalar_domains(meta, radix, io):
+    """Bind the Dynasty layer word and the external transport to their own Q formats."""
     info = meta["dp_info"]["burden"]
     ptq.require(
         meta["dp_out"] == ["burden"]
@@ -201,23 +224,83 @@ def scalar_descriptor(model, out):
     ((scale,),) = descriptor["output_scale"]
     ((bits,),) = descriptor["output_datapath_radix"]
     (width,) = descriptor["output_datapath_bitwidth"]
-    import math
-
     ptq.require(
-        width in (8, 16) and type(bits) is int and math.isfinite(scale) and scale > 0,
+        width in (8, 15, 16)
+        and type(bits) is int
+        and math.isfinite(scale)
+        and scale > 0
+        and descriptor["working_output_bitwidth"] == [width]
+        and descriptor["working_output_radix"] == [[bits]],
         "Unrecognized effective output descriptor",
+    )
+    (transport,) = io["output"]
+    transport_width = transport["bitw"]
+    ptq.require(
+        transport["name"] == "burden"
+        and transport["onnx_shape"] == info["onnx_shape"]
+        and transport["shape"] == info["hw_shape"]
+        and transport["ch_dim"] == -1
+        and transport["ndim"] == 4
+        and transport["scale"] == [scale]
+        and (width, transport_width) in {(8, 8), (15, 16), (16, 16)}
+        and transport["data_format"] == {8: "16W1C8B", 16: "8W1C16B"}[transport_width]
+        and transport["radix"] == [bits + transport_width - width],
+        "Unrecognized effective-to-transport scalar descriptor relationship",
     )
     return {
         "node": node,
         "width": width,
         "radix": bits,
         "scale": scale,
-        "libs_sha256": ptq.sha256(libs),
-        "metadata": {p.name: ptq.sha256(p) for p in out.iterdir() if p.is_file()},
+        "signed_code_domain": "Dynasty layer_output_burden_fx",
+        "transport": transport,
     }
 
 
 def main():
+    if sys.argv[1:2] == ["--inspect-sdk"]:
+        import ktc
+        from sys_flow import run
+
+        parser = argparse.ArgumentParser(
+            description="Inspect the installed KL720 precision controls"
+        )
+        parser.add_argument("--inspect-sdk", type=Path, required=True)
+        out = parser.parse_args().inspect_sdk
+        ptq.require(not out.exists(), "Fresh SDK inspection receipt required")
+        wrapper = Path(inspect.getfile(ktc.ModelConfig.analysis))
+        flow = Path(inspect.getfile(run.gen_fx_model))
+        template = flow.parent / "template/user_config_post_sigmoid.json"
+        source = textwrap.dedent(inspect.getsource(ktc.ModelConfig.analysis))
+        calls = [
+            n
+            for n in ast.walk(ast.parse(source))
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == "gen_fx_model_v1"
+        ]
+        ptq.require(
+            len(calls) == 1 and ptq.sha256(wrapper) == SDK_SHA256,
+            "Unrecognized KL720 wrapper dispatch",
+        )
+        ptq.save_json(
+            out,
+            {
+                "image_id": ptq.IMAGE_ID,
+                "wrapper_sha256": ptq.sha256(wrapper),
+                "kl720_call_keywords": [kw.arg for kw in calls[0].keywords],
+                "native_flow": run.gen_fx_model.__module__ + "." + run.gen_fx_model.__name__,
+                "native_flow_sha256": ptq.sha256(flow),
+                "native_parameters": list(inspect.signature(run.gen_fx_model).parameters),
+                "constraint_example_sha256": ptq.sha256(template),
+                "constraint_example_fields": {
+                    k: sorted(v) for k, v in ptq.load_json(template).items()
+                },
+                "vendor_parameter_reference": "https://doc.kneron.com/docs/toolchain/quantization/1.2_Flow_and_Steps/",
+                "named_layer_bitwidth_override": "no verified field in the documented contract or shipped template",
+            },
+        )
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     for name in (
         "onnx",

@@ -8,6 +8,7 @@ from radiation_edge_ai.nasa_bps import training_precision as precision
 from radiation_edge_ai.nasa_bps.training_precision_readout import (
     SOURCES,
     check_float_word,
+    check_native_word_bytes,
     training_decision,
 )
 
@@ -68,8 +69,50 @@ def test_precision_report_requires_effective_settings(tmp_path):
         precision.verify_report(tmp_path, tmp_path / "x.bie", "datapath16")
 
 
-@pytest.mark.parametrize("word,width", [(-128, 8), (127, 8), (-32768, 16), (32767, 16)])
+@pytest.mark.parametrize(
+    "word,width", [(-128, 8), (127, 8), (-16384, 15), (16383, 15), (-32768, 16), (32767, 16)]
+)
 def test_actual_signed_output_width_and_boundary(word, width):
     check_float_word(word, word / 8, {"width": width, "scale": 1.0, "radix": 3})
     with pytest.raises(ValueError, match="Word exceeds"):
         check_float_word(2 ** (width - 1), 0, {"width": width, "scale": 1.0, "radix": 3})
+
+
+def test_gather_layer_and_transport_have_different_radices():
+    meta = {
+        "dp_out": ["burden"],
+        "dp_info": {
+            "burden": {"node_name": ["/Gather"], "onnx_shape": [1], "hw_shape": [1, 1, 1, 1]}
+        },
+    }
+    radix = {
+        "/Gather": {
+            "output_scale": [[1.25]],
+            "output_datapath_radix": [[12]],
+            "output_datapath_bitwidth": [15],
+            "working_output_bitwidth": [15],
+            "working_output_radix": [[12]],
+        }
+    }
+    transport = {
+        "name": "burden",
+        "onnx_shape": [1],
+        "shape": [1, 1, 1, 1],
+        "ch_dim": -1,
+        "ndim": 4,
+        "scale": [1.25],
+        "bitw": 16,
+        "data_format": "8W1C16B",
+        "radix": [13],
+    }
+    domains = precision.scalar_domains(meta, radix, {"output": [transport]})
+    assert (domains["width"], domains["radix"]) == (15, 12)
+    assert domains["transport"]["radix"] == [13]
+    row = {"fixed_word": -16384, "bie_burden": str(float(-16384 / 4096 / 1.25))}
+    check_native_word_bytes(b"\x00\xc0", b"-16384\n", row, domains)
+    with pytest.raises(ValueError, match="storage length"):
+        check_native_word_bytes(b"\xc0", b"-16384\n", row, domains)
+    with pytest.raises(ValueError, match="signed words differ"):
+        check_native_word_bytes(b"\xc0\x00", b"-16384\n", row, domains)
+    with pytest.raises(ValueError, match="transport"):
+        precision.scalar_domains(meta, radix, {"output": [dict(transport, radix=[12])]})
