@@ -163,6 +163,7 @@ jobs:
           python -m pytest -q
           tests/test_nasa_kl720_replay.py
           tests/test_nasa_candidate_screen_launcher.py
+          tests/test_resnet_neural16_kl720_wrapper.py
       - name: Install isolated Python 3.9 NASA stack and export real graphs
         shell: powershell
         env:

@@ -106,7 +106,7 @@ def catalogue():
         rows[key] = {
             **candidate, "track": "experimental", "fold": "fold_female_role",
             "endpoint": "Continuous 53BP1 burden, aggregated per sample",
-            "scope": "Training-only precision experiment",
+            "scope": candidate.get("scope", "Training-only precision experiment"),
             "scientific": "Independent biological evaluation pending",
         }
     return rows

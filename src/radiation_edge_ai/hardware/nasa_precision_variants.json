@@ -1,6 +1,7 @@
 {
   "nasa-resnet18-female@neural16": {
     "architecture": "resnet18",
+    "scope": "Known female-source development regression",
     "precision_recipe": "neural16",
     "engineering": {
       "training_bie": "native_simulator_complete",
@@ -11,8 +12,21 @@
         "output": "int16",
         "weight": "int16"
       },
-      "development_regression": "prospective_only",
-      "nef_compilation": "blocked_pending_development_fidelity",
+      "development_regression": "passed",
+      "engineering_gates_passed": 8,
+      "engineering_gates_total": 8,
+      "development_nuclei": 2400,
+      "development_bags": 24,
+      "development_contrasts": 12,
+      "nef_compilation": "passed",
+      "compiled_model_id": 32783,
+      "compiled_model_version": 1,
+      "nef_bytes": 51392996,
+      "nef_simulation": "passed",
+      "nef_simulation_panel": "48 frozen training witnesses",
+      "max_abs_transport_vs_bie_foci_per_nucleus": 0.0,
+      "measured_transport_words_equal_to_twice_native": 48,
+      "device_load_verified": false,
       "physical_kl720": "not_run",
       "training_disposition": "descriptive_comparator_prospective_protocol_prepared",
       "training_nonpilot_nuclei": 47,
@@ -30,6 +44,38 @@
       "training_readout": [
         "scratch/nasa_cross_architecture_20261127T0158Z/resnet_readout_v2/readout.json",
         "3290161922587ed8f3a3adc931df6fc5b10d48339ec371a7de604e93cefc2a8f"
+      ],
+      "development_readout": [
+        "scratch/nasa_resnet_neural16_dev_20261127_v1/vendor/bie_receipt.json",
+        "053f3351f0c43df35e19abd8088f7f56f459895bc05f1f1294b575ebe78e43e1"
+      ],
+      "bie_comparison": [
+        "scratch/nasa_resnet_neural16_dev_20261127_v1/comparison/comparison.json",
+        "b621663167bd60272b84e2e5a279251b28b4e79d3a28d621713768d671179736"
+      ],
+      "development_audit": [
+        "scratch/nasa_resnet_neural16_dev_20261127_v1/independent_audit/verification.json",
+        "4f9dd6f061586840636de0aa4292944f880bef6325e4f0dcc0f90f7aa571bf20"
+      ],
+      "compile_eligibility": [
+        "scratch/nasa_resnet_neural16_dev_20261127_v1/nef_compile/eligibility.json",
+        "a32d6c83ab31a3d626112788e812c36807b6120b1a24f3a74f6dc480011bd814"
+      ],
+      "nef": [
+        "scratch/nasa_resnet_neural16_dev_20261127_v1/nef_compile/model.nef",
+        "7f1843a62bb5244048f4df977051b6795f7a39320c6be890cc0fdd9a7f92d4ba"
+      ],
+      "nef_compile": [
+        "scratch/nasa_resnet_neural16_dev_20261127_v1/nef_compile/compile.json",
+        "d068c2b2647edd6a75749bae2d34b7f50e241843a42ec5ed1ac62f92c8130f06"
+      ],
+      "nef_simulation": [
+        "scratch/nasa_resnet_neural16_dev_20261127_v1/nef_sim/simulate.json",
+        "1706ad42edcf401b055077534e6839e63597449f783a0422ab70ebce4d60d59b"
+      ],
+      "nef_simulation_invocation": [
+        "scratch/nasa_resnet_neural16_dev_20261127_v1/nef_sim/invocation.json",
+        "63aa23524860bf90334fa32fc8b23d49cc67380e5b176c09efea77927d006cf9"
       ]
     }
   },
