@@ -1,0 +1,104 @@
+{
+  "nasa-resnet18-female@neural16": {
+    "architecture": "resnet18",
+    "precision_recipe": "neural16",
+    "engineering": {
+      "training_bie": "native_simulator_complete",
+      "requested_precision": {
+        "cpu": "int8",
+        "datapath": "int16",
+        "input": "int16",
+        "output": "int16",
+        "weight": "int16"
+      },
+      "development_regression": "prospective_only",
+      "nef_compilation": "blocked_pending_development_fidelity",
+      "physical_kl720": "not_run",
+      "training_disposition": "descriptive_comparator_prospective_protocol_prepared",
+      "training_nonpilot_nuclei": 47,
+      "training_nonpilot_mae": 0.010918236000740782
+    },
+    "artifacts": {
+      "bie": [
+        "scratch/nasa_cross_architecture_20261127T0158Z/resnet_neural16/kneron_flow/input.kdp720.scaled.bie",
+        "3f654f267ae280f27d6aaf6715b32af4285c5de6f4eb13c844e02e70f2f69c9b"
+      ],
+      "precision_report": [
+        "scratch/nasa_cross_architecture_20261127T0158Z/resnet_neural16/kneron_flow/model_fx_report.json",
+        "245c23cb7021171d64745a3c40506c5b81da663532e996f4553f8e6e465c23ff"
+      ],
+      "training_readout": [
+        "scratch/nasa_cross_architecture_20261127T0158Z/resnet_readout_v2/readout.json",
+        "3290161922587ed8f3a3adc931df6fc5b10d48339ec371a7de604e93cefc2a8f"
+      ]
+    }
+  },
+  "nasa-mobilenetv2@datapath16": {
+    "architecture": "mobilenet_v2",
+    "precision_recipe": "datapath16",
+    "engineering": {
+      "training_bie": "native_simulator_complete",
+      "requested_precision": {
+        "cpu": "int8",
+        "datapath": "int16",
+        "input": "int8",
+        "output": "int8",
+        "weight": "int8"
+      },
+      "development_regression": "not_selected",
+      "nef_compilation": "blocked_pending_development_fidelity",
+      "physical_kl720": "not_run",
+      "training_disposition": "failed_source_mae_nonincrease",
+      "training_nonpilot_nuclei": 24,
+      "training_nonpilot_mae": 0.1126212531235069
+    },
+    "artifacts": {
+      "bie": [
+        "scratch/nasa_mobilenet_precision_pair_20261127T020000Z_c53693e1/datapath16/kneron_flow/input.kdp720.scaled.bie",
+        "585a7f78b9b8aade552aa4da55f88e376edc8729c155cc91e738e556cecb993c"
+      ],
+      "precision_report": [
+        "scratch/nasa_mobilenet_precision_pair_20261127T020000Z_c53693e1/datapath16/kneron_flow/model_fx_report.json",
+        "8b896206dd2beb6c6463862062998ead359ec5f7511e28c7876cc9099415c0c9"
+      ],
+      "training_readout": [
+        "scratch/nasa_mobilenet_precision_pair_20261127T020000Z_c53693e1/datapath16/effective_word_replay/evaluation/readout.json",
+        "7a7f69a4f4a5998d11d07a7575b0788839243b538803a988192e22ffdac58c31"
+      ]
+    }
+  },
+  "nasa-mobilenetv2@neural16": {
+    "architecture": "mobilenet_v2",
+    "precision_recipe": "neural16",
+    "engineering": {
+      "training_bie": "native_simulator_complete",
+      "requested_precision": {
+        "cpu": "int8",
+        "datapath": "int16",
+        "input": "int16",
+        "output": "int16",
+        "weight": "int16"
+      },
+      "development_regression": "not_selected",
+      "nef_compilation": "blocked_pending_development_fidelity",
+      "physical_kl720": "not_run",
+      "training_disposition": "failed_source_mae_nonincrease",
+      "training_nonpilot_nuclei": 24,
+      "training_nonpilot_mae": 0.07845664769411087
+    },
+    "artifacts": {
+      "bie": [
+        "scratch/nasa_mobilenet_precision_pair_20261127T020000Z_c53693e1/neural16/kneron_flow/input.kdp720.scaled.bie",
+        "85abdb0793594b7840e1ef379885b5804e925879fb96291e2302f1ffe6c00716"
+      ],
+      "precision_report": [
+        "scratch/nasa_mobilenet_precision_pair_20261127T020000Z_c53693e1/neural16/kneron_flow/model_fx_report.json",
+        "e7a05597ab3f21f6f88d1d2268fd6b5de0609629c892d460266b22c25f8a70ef"
+      ],
+      "training_readout": [
+        "scratch/nasa_mobilenet_precision_pair_20261127T020000Z_c53693e1/neural16/effective_word_replay/evaluation/readout.json",
+        "66596423d2ebe457f79011e4a477ca4a09d3b519aec7056d8fa2f654e1c3408c"
+      ]
+    }
+  }
+}

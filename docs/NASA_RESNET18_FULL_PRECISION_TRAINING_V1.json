@@ -1,0 +1,41 @@
+{
+  "architecture": "resnet18",
+  "fold": "fold_female_role",
+  "model_id": 32783,
+  "scope": "training_only_descriptive_comparator",
+  "protocol_commit": "286a4c2",
+  "checkpoint_sha256": "85b595d9311ea25d2ffe19130a183065164079ef36518e0dee5d5ce52d347eec",
+  "source_sha256": "277ba0acd6c9e17200948d8f979cabe4fc56069b0e3885c7854d244667a706a2",
+  "optimized_sha256": "afb362866af2f61d51e7aae17ae11e262c4a551f790acf8ff8e7c104aa00573a",
+  "standard_bie_sha256": "2428c60742e862f3bc3b6a6831284a3afa2b9e4db652fa760f331e3500bbea2f",
+  "calibration_manifest_sha256": "79aef81e921a723187d73cef5151ff9b943ad486d7e83af19daf063a5b5a1489",
+  "parity_sha256": "7a00a03dea5033e593465e96843e2a6d63e40e68e7b6716a91d701284382c259",
+  "panel_sha256": "fecec721ddf8ad424ed9f5ac13594a0488d2fe6805aa0031aff11c18a602113a",
+  "recipes": {
+    "neural16": {
+      "datapath_bitwidth_mode": "int16",
+      "weight_bitwidth_mode": "int16",
+      "model_in_bitwidth_mode": "int16",
+      "model_out_bitwidth_mode": "int16"
+    }
+  },
+  "pilot": "BPSR1V2D_01501",
+  "n_training_sources": 4,
+  "n_pilot": 1,
+  "n_nonpilot": 47,
+  "image_id": "sha256:2207d99c9f78deef90647a3da3047ec3f7942ec689385a586fee476f77e89041",
+  "ordinary_eligibility_policy": "NASA_PTQ_ACCEPTANCE_V1.json",
+  "historical_policy_sha256": "20a685eba6502e5cb10d4506f39f8b155d6b29548b2df10915fe9dd5cd470db9",
+  "maximums": {
+    "bag_paired_mae": 0.05,
+    "bag_paired_max_abs": 0.15,
+    "contrast_paired_mae": 0.1,
+    "contrast_paired_max_abs": 0.2,
+    "bag_mae_increase": 0.05,
+    "strong_effect_sign_reversals": 0,
+    "four_hour_nonpositive": 0,
+    "incomplete_or_nonfinite_panels": 0
+  },
+  "strong_effect_min_abs_fp32_delta": 0.2,
+  "nef_eligible_from_training": false
+}
