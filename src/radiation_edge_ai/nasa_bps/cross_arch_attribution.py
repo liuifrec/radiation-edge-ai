@@ -20,7 +20,7 @@ RESNET_PILOT = "BPSR1V2D_01501"
 COMPONENTS = ("upstream", "head_and_output", "total")
 
 
-def paired_records(architecture, csv_rows, selected, members):
+def paired_records(architecture, csv_rows, selected, members, shared_panel=False):
     """Require the separately recorded membership, panel labels and input bytes."""
     require(architecture in PANELS, "Unrecognized architecture")
     selected_by_id = {r["sample_id"]: r for r in selected}
@@ -31,7 +31,7 @@ def paired_records(architecture, csv_rows, selected, members):
         require(sid not in results and sid in selected_by_id and sid in members,
                 "Repeated, missing or unexpected training nucleus: " + sid)
         ref, chosen = members[sid], selected_by_id[sid]
-        panel = chosen.get("panel") if architecture == "mobilenet_v2" else (
+        panel = chosen.get("panel") if architecture == "mobilenet_v2" or shared_panel else (
             "pilot" if sid == RESNET_PILOT else "confirmation")
         require(row["panel"] == panel and panel in {"pilot", "confirmation"}, "Panel identity mismatch")
         require(ref["source_name"] in SOURCES and ref["fold_female_role"] == "train"
@@ -85,10 +85,27 @@ def summarize(records):
     return dict(common_all_n=len(common), common_nonpilot_ids=nonpilot, summaries=comparisons)
 
 
+def matched_panel(records, resnet_matched):
+    """Check the four-source replication against each architecture's original panel."""
+    mobile = {sid: r for sid, r in records["mobilenet_v2"].items() if r["panel"] == "confirmation"}
+    require(mobile.keys() == resnet_matched.keys(), "Expected every sealed MobileNet confirmation row")
+    shared = sorted(set(resnet_matched) & set(records["resnet18"]))
+    for sid in shared:
+        original, new = records["resnet18"][sid], resnet_matched[sid]
+        require(all(original[k] == new[k] for k in ("input_sha256", "source_name", "original_fp32", "bie"))
+                and math.isclose(original["pooled_head_fp32"], new["pooled_head_fp32"],
+                                 abs_tol=1e-5, rel_tol=1e-4),
+                "Matched ResNet trace does not reproduce archived endpoint or FP32 head replay")
+    paired = summarize({"mobilenet_v2": mobile, "resnet18": resnet_matched})
+    return dict(archival_crosscheck_ids=shared, results=paired["summaries"])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--matched-resnet", type=Path, help="ResNet standard BIE on the MobileNet confirmation panel")
+    parser.add_argument("--matched-resnet-sha256")
     for name in PANELS:
         parser.add_argument("--" + name + "-selection", type=Path, required=True)
         parser.add_argument("--" + name + "-pairs", type=Path, required=True)
@@ -105,6 +122,16 @@ def main():
         records[arch] = paired_records(arch, checked_rows(pairs), load_json(selection)["rows"], training)
         identities[arch] = dict(selection_sha256=expected, pairs_sha256=digest)
     summary = summarize(records)
+    require(bool(args.matched_resnet) == bool(args.matched_resnet_sha256), "Expected a paired file and digest")
+    matched = {}
+    if args.matched_resnet:
+        require(sha256(args.matched_resnet) == args.matched_resnet_sha256, "Changed matched training evidence")
+        selection = load_json(args.mobilenet_v2_selection)["rows"]
+        matched = paired_records("resnet18", checked_rows(args.matched_resnet),
+                                 [r for r in selection if r["panel"] == "confirmation"],
+                                 training, shared_panel=True)
+        summary["matched_training_panel"] = matched_panel(records, matched)
+        summary["matched_resnet_sha256"] = args.matched_resnet_sha256
     args.out.mkdir(parents=True, exist_ok=False)
     csv_path = args.out / "paired_attribution.csv"
     with csv_path.open("x", newline="", encoding="utf-8") as stream:
@@ -112,6 +139,14 @@ def main():
         writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
+    if matched:
+        matched_path = args.out / "matched_attribution.csv"
+        with matched_path.open("x", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+            writer.writeheader()
+            for sid in sorted(matched):
+                writer.writerows((records["mobilenet_v2"][sid], matched[sid]))
+        summary["matched_pairs_sha256"] = sha256(matched_path)
     save_json(args.out / "receipt.json", dict(scope="training_only", units="foci/nucleus",
               manifest_sha256=MANIFEST, inputs=identities, program_sha256=sha256(__file__),
               pairs_sha256=sha256(csv_path), **summary))

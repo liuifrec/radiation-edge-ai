@@ -1,6 +1,6 @@
 import pytest
 
-from radiation_edge_ai.nasa_bps.cross_arch_attribution import paired_records, summarize
+from radiation_edge_ai.nasa_bps.cross_arch_attribution import matched_panel, paired_records, summarize
 
 
 def inputs(architecture="mobilenet_v2"):
@@ -50,3 +50,14 @@ def test_missing_duplicate_or_held_out_row_rejected():
     members["a"]["fold_female_role"] = "test"
     with pytest.raises(ValueError, match="training-source"):
         paired_records(arch, rows, selected, members)
+
+
+def test_additional_panel_requires_same_inputs_and_archived_overlap():
+    records = {a: paired_records(*inputs(a)) for a in ("mobilenet_v2", "resnet18")}
+    repeated = paired_records(*inputs("resnet18"), shared_panel=True)
+    assert matched_panel(records, repeated)["archival_crosscheck_ids"] == ["a"]
+    repeated["a"]["bie"] += 1
+    with pytest.raises(ValueError, match="does not reproduce"):
+        matched_panel(records, repeated)
+    with pytest.raises(ValueError, match="every sealed"):
+        matched_panel(records, {})

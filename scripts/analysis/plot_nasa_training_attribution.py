@@ -18,10 +18,12 @@ def main():
     parser.add_argument("--comparison", type=Path, required=True,
                         help="Directory written by cross_arch_attribution")
     parser.add_argument("--out", type=Path, required=True, help="New directory")
+    parser.add_argument("--matched", action="store_true", help="Draw only identical nuclei across architectures")
     args = parser.parse_args()
     receipt = json.loads((args.comparison / "receipt.json").read_text(encoding="utf-8"))
-    pairs = args.comparison / "paired_attribution.csv"
-    if sha256(pairs) != receipt["pairs_sha256"] or receipt["scope"] != "training_only":
+    pairs = args.comparison / ("matched_attribution.csv" if args.matched else "paired_attribution.csv")
+    expected = receipt["matched_pairs_sha256" if args.matched else "pairs_sha256"]
+    if sha256(pairs) != expected or receipt["scope"] != "training_only":
         raise ValueError("Training comparison receipt and predictions disagree")
     with pairs.open(encoding="utf-8", newline="") as stream:
         rows = [r for r in csv.DictReader(stream) if r["panel"] == "confirmation"]
@@ -40,7 +42,9 @@ def main():
         ax.grid(axis="y", color="#646f78", alpha=.16, linewidth=.7)
         ax.set_axisbelow(True)
     axes[0].set_ylabel("Contribution to BIE shift (foci/nucleus)")
-    fig.suptitle("Where prediction shifts enter the regression output", ha="left",
+    title = ("Regression error on identical training nuclei" if args.matched
+             else "Where prediction shifts enter the regression output")
+    fig.suptitle(title, ha="left",
                  x=.09, fontsize=15, fontweight="bold")
     handles = [Line2D([], [], marker=m, color=c, ls="", markersize=7)
                for m, c in zip(("o", "^"), colors)]
