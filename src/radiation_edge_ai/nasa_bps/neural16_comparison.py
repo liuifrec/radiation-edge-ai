@@ -1,5 +1,6 @@
 """Score the single policy-bound ResNet18 neural16 known development regression."""
 import argparse
+import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,6 +61,29 @@ def verify_simulation(run, policy):
     return receipt
 
 
+def completed_invocation(run, receipt):
+    """Bind the native output to its successful, pinned host launch and saved SDK log."""
+    native_sha = sha256(run / "vendor/bie_receipt.json")
+    successful = []
+    for path in run.glob("regression_invocation_*/invocation.json"):
+        launch = load_json(path)
+        if launch["status"] == "BIE_SIMULATION_COMPLETE":
+            successful.append((path, launch))
+    require(len(successful) == 1, "Expected exactly one completed development invocation")
+    path, launch = successful[0]
+    require(launch["vendor_receipt_sha256"] == native_sha and launch["preparation_sha256"] == receipt["preparation_sha256"]
+            and launch["policy_sha256"] == POLICY_SHA and launch["image_id"] == receipt["image_id"]
+            and launch["return_code"] == 0 and launch["error"] is None
+            and sha256(path.with_name("simulator.log")) == launch["log_sha256"], "Changed host invocation or simulator log")
+    stage = run / "regression_source"
+    for name, digest in launch["sources"].items():
+        member = (stage / name).resolve()
+        require(stage.resolve() in member.parents and sha256(member) == digest, "Changed native source snapshot")
+    require(launch["sources"]["radiation_edge_ai/nasa_bps/neural16_native.py"] == receipt["worker_sha256"],
+            "Simulator worker differs from launch source")
+    return {"file": path.relative_to(run).as_posix(), "sha256": sha256(path), "simulator_seconds": launch["seconds"]}
+
+
 def score(run, prepared, data_root, policy_path):
     out = run / "comparison"
     out.mkdir(exist_ok=False)
@@ -77,6 +101,11 @@ def score(run, prepared, data_root, policy_path):
                       decisions={key: {"actual": None, "maximum": limit, "pass": None, "status": "UNEVALUABLE"}
                                  for key, limit in policy["maximums"].items()})
         receipt = verify_simulation(run, policy)
+        report["invocation"] = completed_invocation(run, receipt)
+        report["arguments"] = {"run": str(run), "prepared": str(prepared), "data_root": str(data_root),
+                               "policy": str(policy_path)}
+        for path in (Path(__file__), Path(scorer.__file__), policy_path):
+            shutil.copyfile(path, out / path.name)
         initial, tables = frozen_inputs(data_root, prepared, policy)
         require(initial["input_manifest_sha256"] == receipt["input_manifest_sha256"], "Different FP32/BIE inputs")
         pairs = checked_rows(run / "vendor/bie_nuclei.csv")

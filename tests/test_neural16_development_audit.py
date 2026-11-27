@@ -9,6 +9,7 @@ import pytest
 
 from radiation_edge_ai.nasa_bps import multimodel_bie_comparison as scorer
 from radiation_edge_ai.nasa_bps import neural16_audit as audit
+from radiation_edge_ai.nasa_bps import neural16_comparison as comparison
 
 
 @pytest.mark.parametrize("word", [-16384, -1, 0, 1, 3760, 16383])
@@ -112,4 +113,34 @@ def test_int8_and_int16_comparison_requires_identical_frozen_float_inputs():
     assert paired["full_neural_int16_minus_fp32"] == pytest.approx(-0.02)
     with pytest.raises(ValueError, match="Mismatched FP32"):
         compare([row], [dict(row, fp32="0.51")], "nucleus")
+
+
+def test_invocation_checks_actual_sdk_log_source_and_unique_success(tmp_path):
+    from radiation_edge_ai.nasa_bps.multimodel_ptq import save_json, sha256
+
+    relative = "radiation_edge_ai/nasa_bps/neural16_native.py"
+    worker = tmp_path / "regression_source" / relative
+    worker.parent.mkdir(parents=True)
+    worker.write_bytes(b"fixture")
+    native = tmp_path / "vendor/bie_receipt.json"
+    native.parent.mkdir()
+    receipt = {"preparation_sha256": "b" * 64, "image_id": "image", "worker_sha256": sha256(worker)}
+    save_json(native, receipt)
+    attempt = tmp_path / "regression_invocation_001"
+    attempt.mkdir()
+    log = attempt / "simulator.log"
+    log.write_bytes(b"vendor")
+    record = dict(policy_sha256=comparison.POLICY_SHA, return_code=0, error=None, status="BIE_SIMULATION_COMPLETE",
+                  image_id=receipt["image_id"], preparation_sha256=receipt["preparation_sha256"],
+                  vendor_receipt_sha256=sha256(native), log_sha256=sha256(log), sources={relative: sha256(worker)}, seconds=2.)
+    save_json(attempt / "invocation.json", record)
+    assert comparison.completed_invocation(tmp_path, receipt)["simulator_seconds"] == 2.
+    log.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="invocation or simulator log"):
+        comparison.completed_invocation(tmp_path, receipt)
+    second = tmp_path / "regression_invocation_002"
+    second.mkdir()
+    save_json(second / "invocation.json", record)
+    with pytest.raises(ValueError, match="exactly one"):
+        comparison.completed_invocation(tmp_path, receipt)
 
