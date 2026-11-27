@@ -1,6 +1,7 @@
 """Capture native boundaries around MaxPool on the frozen ResNet18 precision comparator."""
 
 import argparse
+import hashlib
 import json
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -11,6 +12,7 @@ import mobilenet_feature_capture as capture
 PANEL = "fecec721ddf8ad424ed9f5ac13594a0488d2fe6805aa0031aff11c18a602113a"
 BIE = "3f654f267ae280f27d6aaf6715b32af4285c5de6f4eb13c844e02e70f2f69c9b"
 CAPTURE = "82dbd9ae23a8a3b54a79625d849f6355c39612623990d48ee5c96407d31df52f"
+RELEASE_CAPTURE = "6770373b4ae529795aee6f15339ed45c30583f294853545ea6bd796fa43d61b7"
 TAPS = {"stem_relu": "/features/features.2/Relu_output_0",
         "stem_pool": "/features/features.3/MaxPool_output_0", "burden": "burden"}
 
@@ -24,7 +26,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    capture.checked(capture.__file__, CAPTURE)
+    source = Path(capture.__file__).read_bytes().replace(b"\r\n", b"\n")
+    capture.check(hashlib.sha256(source).hexdigest() in {CAPTURE, RELEASE_CAPTURE},
+                  "Unexpected native capture implementation")
     model = capture.checked(Path("/model.bie"), BIE)
     rows = json.loads(capture.checked(Path("/panel.json"), PANEL).read_bytes())["rows"]
     capture.check(len(rows) == 48 and len({r["sample_name"] for r in rows}) == 48 and

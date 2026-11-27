@@ -101,6 +101,14 @@ def catalogue():
                                "90e40ad338df96d13ab0b32e3cb8db936509ca7c2d1256cac74e893407a7b6cf"),
         },
     )
+    precision = json.loads(Path(__file__).with_name("nasa_precision_variants.json").read_bytes())
+    for key, candidate in precision.items():
+        rows[key] = {
+            **candidate, "track": "experimental", "fold": "fold_female_role",
+            "endpoint": "Continuous 53BP1 burden, aggregated per sample",
+            "scope": "Training-only precision experiment",
+            "scientific": "Independent biological evaluation pending",
+        }
     return rows
 
 

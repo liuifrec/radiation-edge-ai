@@ -1,5 +1,11 @@
 # Select a model and backend
 
+The catalogue registers three additional female-fold NASA BIEs. Use the
+model keys `nasa-mobilenetv2@datapath16`, `nasa-mobilenetv2@neural16`
+and `nasa-resnet18-female@neural16` with `--verify` to authenticate each
+binary, vendor precision report and actual training readout. The three
+entries remain experimental. [Training fidelity, selection and IP estimates](NASA_CROSS_ARCHITECTURE_PRECISION_RESULTS.md)
+
 The experimental `nasa-mobilenetv2` entry identifies the female-fold checkpoint,
 two FP32 graphs, standard INT8 BIE and its completed comparison. Seven of eight
 fidelity gates passed. Mean absolute bag shift was 0.084169 foci/nucleus

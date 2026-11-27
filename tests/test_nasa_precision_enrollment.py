@@ -47,6 +47,16 @@ def test_winner_and_contenders_must_be_bound_to_frozen_screen():
     s["selected_configuration"] = "neural16"
     with pytest.raises(ValueError, match="Incorrect training selection"):
         select_binary(s)
+
+
+def test_two_source_regressions_close_the_training_screen():
+    s = selection()
+    for row in s["candidates"].values():
+        row["summary"]["confirmation"]["by_source"]["C57BLM3"]["mae"] = .21
+        row["status"] = "SCREEN_FAIL"
+        row["checks"]["source_mae_nonincrease"] = False
+    s.update(selected_configuration=None, selected_bie_sha256=None)
+    assert select_binary(s) is None
     s["panel_sha256"] = "7" * 64
     with pytest.raises(ValueError, match="Unexpected training screen"):
         select_binary(s)

@@ -71,9 +71,17 @@ def enrollment(original_policy, screen, screen_sha256, protocol, out):
     require(sha256(screen) == screen_sha256, "Unexpected selection receipt")
     selection = load_json(screen)
     recipe = select_binary(selection)
-    require(recipe is not None, "No training candidate warrants an engineering regression")
+    if recipe is None:
+        decision = dict(stage="training_screen_closed", selected_configuration=None,
+                        selection_receipt_sha256=screen_sha256, training_policy_sha256=TRAINING_POLICY,
+                        historical_policy_sha256=mobile.POLICY_SHA, nef_eligible_from_training=False)
+        with out.open("x", encoding="utf-8", newline="\n") as stream:
+            stream.write(json.dumps(decision, indent=2) + "\n")
+        return decision
     directory = screen.parent / recipe
-    readout = directory / "evaluation/readout.json"
+    readout = (screen.parent / selection["readouts"][recipe]).resolve()
+    require(directory.resolve() in readout.parents and readout.name == "readout.json",
+            "Training readout is outside the selected recipe directory")
     build = directory / "quantization.json"
     q, measured = load_json(build), load_json(readout)
     require(selection["receipt_sha256"][recipe] == sha256(readout)
