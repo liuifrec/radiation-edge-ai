@@ -24,6 +24,7 @@ def preflight(args, kp):
     run = args.campaign.resolve(strict=True)
     chain = gate.eligibility(Path(__file__).resolve().parents[2] / "docs", args.data, run, args.audit_sha256)
     compiled = gate.completed_stage(args.compile_dir, "compile", args.compile_sha256, chain)
+    gate.compiled_files(args.compile_dir, compiled)
     stage = "development-reference" if args.mode == "development" else "simulate"
     sim = gate.completed_stage(args.sim_dir, stage, args.sim_sha256, chain)
     if args.mode == "development":

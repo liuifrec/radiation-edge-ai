@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -36,7 +37,8 @@ def verified_audit(policy, comparison, native, audit):
     failed = passing_metrics(comparison, policy["maximums"])
     for key, limit in policy["maximums"].items():
         independent = audit["metrics"][key]
-        require(abs(independent - comparison["metrics"][key]) <= 1e-12
+        require(type(independent) in (int, float) and math.isfinite(independent)
+                and abs(independent - comparison["metrics"][key]) <= 1e-12
                 and audit["gate_decisions"][key] is (independent <= limit)
                 and audit["gate_decisions"][key] is comparison["decisions"][key]["pass"],
                 "Independent audit disagrees: " + key)
@@ -77,6 +79,9 @@ def eligibility(docs, data, run, audit_digest):
             and prep["input_manifest_sha256"] == native["input_manifest_sha256"] == audit["input_manifest_sha256"],
             "Development receipt chain changed")
     regression.verify_descriptor(native["output_descriptor"])
+    for name, expected in native["output_descriptor"]["metadata"].items():
+        require(Path(name).name == name and sha256(folder / "metadata" / name) == expected,
+                "Changed raw simulator metadata: " + name)
     require(audit["output_descriptor"] == native["output_descriptor"]
             and audit["training_witness_sha256"] == native["training_witnesses"]["sha256"]
             and audit["observed_transport_words"] == 0
@@ -120,6 +125,17 @@ def completed_stage(folder, stage, digest, chain):
     return rec
 
 
+def compiled_files(folder, compiled):
+    flow = folder / "kneron_flow"
+    model = flow / "model_modelid_32783"
+    for path, field in ((folder / "model.nef", "nef_sha256"), (flow / "fw_info.txt", "firmware_map_sha256"),
+                        (flow / "batch_compile.log", "compiler_log_sha256"),
+                        (model / "model_config.json", "compiler_config_sha256"),
+                        (model / "setup.txt", "setup_text_sha256"), (model / "setup.bin", "setup_bin_sha256"),
+                        (model / "ioinfo.json", "compiled_io_sha256")):
+        require(sha256(path) == compiled[field], "Compiled artifact changed: " + path.name)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("stage", choices=["check", "compile", "simulate", "development-reference"])
@@ -152,8 +168,7 @@ def main():
         require(args.compiler_output and re.fullmatch("[0-9a-f]{64}", args.compile_sha256 or ""),
                 "A hashed compile receipt is required")
         compiled = completed_stage(args.compiler_output, "compile", args.compile_sha256, chain)
-        require(sha256(args.compiler_output / "model.nef") == compiled["nef_sha256"],
-                "Compiled NEF or eligibility changed")
+        compiled_files(args.compiler_output, compiled)
         mounts.extend([(args.compiler_output, "/compiled"),
                        (Path(prepared["training_panel_sha256"]["path"]), "/selection.json"),
                        (Path(prepared["training_predictions_sha256"]["path"]), "/training.csv"),
