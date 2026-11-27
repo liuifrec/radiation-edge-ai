@@ -128,9 +128,11 @@ reads the ordinary `dma2seq_0.seq`, and `sys_flow.dynasty_v3.np_fx2fl`
 applies the NEF's radix 13 to that ordinary word. This explains the
 half-sized public value on the positive witness. The vendor's KL720
 device-comparison path, `sys_flow.test_case.btm_csim_nef`, selects
-`dma2seq_0.seq.16B` for INT16 model output. The compiler's text setup prints
-the scale as 1.320636. Using that printed scale with ordinary word 3760
-reproduces the public diagnostic to its reported precision. The signed
+`dma2seq_0.seq.16B` for INT16 model output. Unpacking this same NEF through
+the public SDK produced an `ioinfo.json` with SHA256
+`7c39bb6062527be4a5e39f8c97492900e8878054a108c165e18adc150c4d56b4`
+and scale 1.320636. Dividing ordinary word 3760 by `8192 × 1.320636`
+exactly reproduces the public diagnostic. The signed
 transport decoder reads the original binary32 scale. The installed module SHA256s are
 `608563b37efd4b4ae888cff8edabadcaa5071f4c3e39edd9f7908820871a261a`
 for `csim_utils`, `387cc2e90068cdc75434eb4171f62edf718d5ec1ba8b96e9fcf44f04e78efb76`
