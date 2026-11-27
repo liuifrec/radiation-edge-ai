@@ -47,6 +47,42 @@ Similar historical bag errors alone would not identify a shared layer defect.
   evidence localizes sensitivity at a boundary without establishing an
   arithmetic error in the vendor implementation. [ResNet trace PR](https://github.com/liuifrec/radiation-edge-ai/pull/45)
 
+## What changed at ResNet18 MaxPool
+
+The full-neural INT16 BIE removed the measured downward contribution at the
+stem MaxPool on **47 of 47 nonpilot training nuclei**. For each nucleus we
+decoded its actual native ReLU output and following MaxPool output, ran the
+corresponding unchanged FP32 suffix from each cut, and subtracted the two
+head preactivations. The standard BIE gave a negative difference on every
+nucleus. The full-neural BIE gave exactly zero on every nucleus. The separate
+pilot moved from −0.022113 to zero.
+
+| Training source | Nonpilot nuclei | Standard MaxPool contribution | Full-neural MaxPool contribution |
+| --- | ---: | ---: | ---: |
+| BALBCM1 | 11 | −0.065766 | 0 |
+| BALBCM2 | 12 | −0.071770 | 0 |
+| C57BLM1 | 12 | −0.066935 | 0 |
+| C57BLM3 | 12 | −0.071447 | 0 |
+| All | 47 | −0.069048 | 0 |
+
+The units are foci/nucleus at the FP32 head before rectification. Both
+full-neural stem tensors used 15 effective bits with matching per-channel
+grids. Across the 48 independent captures, signed binary decoding differed
+from the vendor float dumps by at most 7.46 × 10⁻⁹. Final full-BIE prediction
+MAE was still 0.010918 foci/nucleus.
+
+One predeclared host experiment isolated the output grid. We held the
+standard BIE's ReLU activations fixed, applied the original MaxPool, rounded
+its output to the measured full-neural grid and replayed the FP32 suffix.
+The mean contribution was −0.00001193 and the mean absolute contribution
+was 0.00001493. There were zero clipped codes or exact rounding ties. The
+pinned KL720 toolchain exposes no verified per-layer width control for this
+boundary. The host experiment supports investigating a finer output grid if
+such a control becomes available. Native mixed-precision performance and
+end-to-end fidelity remain unmeasured. The paired table SHA256 is
+`8cfe4591e0b8b36f5167b75e471ca38ffdf6da2f83137e5458bbacecf8c8ab6c`.
+[Prespecified boundary probe](NASA_RESNET18_MAXPOOL_PROBE.md)
+
 ## Actual candidate conversions and costs
 
 Each conversion used the frozen weights and all 192 original training-only
@@ -100,6 +136,15 @@ words were observed in this campaign. The simulator readout paired integer
 and float dumps on all 48 inputs and repeated one case from each batch with
 the public singleton API. Signed boundary tests exercise negative values
 that a rectified burden cannot supply.
+
+An independent byte audit matched the singleton native scalar files to the
+batched native words on all 48 inputs. The internal rule reconstructed all
+48 floats, including all 20 nonzeros. Applying radix 13 directly to the
+same internal words halved all 20 nonzero outputs and induced a maximum error
+of 1.044123 foci/nucleus. The 28 zeros alone cannot distinguish these
+representations. The original failed and corrected readout receipt SHA256s are
+`7cb0bdc69ad5f457e336a3d4761fe752ff65b79faa240cf03c8afc879e8cf35a` and
+`3290161922587ed8f3a3adc931df6fc5b10d48339ec371a7de604e93cefc2a8f`.
 
 ## Evidence and reproduction
 
