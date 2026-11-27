@@ -96,3 +96,66 @@ output and 1,572,864 bytes of working buffer. Its high-water address leaves
 This establishes feasibility against that map. Physical load and USB
 latency require a device measurement. The compiler call took 31.00 s and
 the enclosing Docker invocation took 44.55 s.
+
+## Compiled simulator qualification
+
+All **48/48** prospectively selected training witnesses passed the frozen
+0.0001 foci/nucleus absolute tolerance with zero relative tolerance. The
+maximum observed absolute difference was **0.0**. These witnesses test the
+compiled interface. The development BIE regression above used its separate
+2,400-nucleus panel.
+
+The typed reader verified the setup bytes embedded in this exact NEF. The
+input is signed 16-bit `1W16C8BHL`, shape `[1,3,256,256]`, radix 15, scale 1.
+Host-packed input matched all 100,663,296 SDK bytes. The scalar output
+`burden` has logical shape `[1]`, accelerator shape `[1,1,1,1]`, signed
+16-bit `8W1C16B` layout, radix 13 and binary32 scale bits `0x3fa90a99`.
+The independent audit reversed the input packing, checked every archived file
+hash and decoded both scalar carriers for all 48 cases.
+
+Each ordinary `.seq` output equaled the original signed native BIE word.
+Each observed `.seq.16B` transport word equaled twice that native word. There
+were 20 nonzero cases and 28 zero cases. On the predeclared positive input,
+the BIE emitted 3760 at radix 12 and the NEF emitted 7520 at radix 13.
+Both decode to 0.6950960159301758 foci/nucleus. The public simulator float
+helper returned 0.34754798066991965 on that same input. The qualification
+used the actual signed carrier with the artifact's typed descriptor, as
+specified before the readout.
+
+In the pinned image, the public `kneron_inference` path calls
+`sys_flow.inference.inference_csim_v2`. Its `sys_flow.csim_utils.txt2np`
+reads the ordinary `dma2seq_0.seq`, and `sys_flow.dynasty_v3.np_fx2fl`
+applies the NEF's radix 13 to that ordinary word. This explains the
+half-sized public value on the positive witness. The vendor's KL720
+device-comparison path, `sys_flow.test_case.btm_csim_nef`, selects
+`dma2seq_0.seq.16B` for INT16 model output. The compiler's text setup prints
+the scale as 1.320636. Using that printed scale with ordinary word 3760
+reproduces the public diagnostic to its reported precision. The signed
+transport decoder reads the original binary32 scale. The installed module SHA256s are
+`608563b37efd4b4ae888cff8edabadcaa5071f4c3e39edd9f7908820871a261a`
+for `csim_utils`, `387cc2e90068cdc75434eb4171f62edf718d5ec1ba8b96e9fcf44f04e78efb76`
+for `dynasty_v3` and `f6301fd758824c335fe437906ea1e87ea121731bcfa5f18975e18c2da80ec8fc`
+for `test_case`.
+
+| External evidence | SHA256 |
+| --- | --- |
+| NEF simulator qualification | `1706ad42edcf401b055077534e6839e63597449f783a0422ab70ebce4d60d59b` |
+| Independent NEF archive and input audit | `e10031a6ab672516d16028c6c9ebf620cf6485d80501b5f46660792e0533db31` |
+| Independent SDK input-packing preflight | `8330315c4a06ac33bd79d6c71eb78bb072efecd2f65b392c52b9658e07f03b5c` |
+| Offline PLUS smoke command | `e07910e608f51522dcad21edc262bc78ff1f52ee85df23ab48b3064ff514b1f4` |
+| Offline PLUS training-panel command | `725d77106a7d04bfb3a16fc9b2210f873e9b8bc12a7d1c448ce53976c8589147` |
+
+The complete NEF simulator invocation took **10,128.59 s** wall time. The 48
+direct simulator calls averaged **204.05 s** and had a median of 201.89 s and
+a range of 200.09–215.00 s. The separately measured public-helper diagnostic
+took 208.30 s. The simulator invocation includes that diagnostic and setup.
+
+The Windows smoke and panel launchers both passed offline preflight using
+PLUS 3.2.0. Each checked all 48 measured carriers and their SDK-packed inputs.
+The next hardware step requires separate operator approval for a one-input
+smoke on KL720 `0xAA06244C`, firmware `2.2.0-build.615`, with exact word
+7520 as its acceptance condition. Device load, USB latency and physical
+panel results remain unmeasured. A separately approved 48-witness physical
+replay requires a passing physical smoke receipt. The optional 2,400-nucleus
+physical replay also requires generating a complete development NEF
+simulator reference. [Guarded Windows commands](NASA_RESNET18_NEURAL16_WINDOWS.md)
