@@ -14,7 +14,7 @@ from pathlib import Path, PureWindowsPath
 from . import multimodel as mm
 from . import multimodel_ptq as ptq
 from . import multimodel_qualification as mobile
-from .deployment_cohort import cohort_identity, require_cohort
+from .deployment_cohort import cohort_identity
 
 
 DATA_ROOT = PureWindowsPath(r"D:\radiation-edge-ai-data")
@@ -47,9 +47,6 @@ def frozen_inputs(data_root, policy_path, policy_sha256, artifacts):
     def record(name, path, digest):
         artifacts[name] = mm._check_sha(path, digest)
         return path
-
-    def local(path):
-        return recorded_data_path(data_root, path)
 
     ptq.require(policy_sha256 == ptq.V1_POLICY_SHA, "Unrecognized prospective V1 policy identity")
     record("policy", policy_path, policy_sha256)

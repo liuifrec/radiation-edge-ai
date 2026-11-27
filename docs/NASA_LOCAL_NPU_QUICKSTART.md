@@ -526,3 +526,23 @@ The other four screened exports still require fold-specific PTQ and accuracy
 decisions before any NEF or physical execution. The
 [PTQ recovery guide](NASA_POC_PTQ_RECOVERY.md) identifies each fold, its
 available evidence and the command to reproduce the archived decision.
+
+### MobileNetV2 female-fold development readout
+
+Run the prospective INT8 evaluation from the checkout containing the
+[MobileNetV2 acceptance protocol](NASA_MOBILENET_V2_FEMALE_INT8_V1.md).
+The candidate JSON binds the existing FP32 preparation, including its timestamp
+and the digest of the staged tensor manifest.
+
+```powershell
+& 'D:\radiation-edge-ai-data\envs\nasa39\Scripts\python.exe' -B scripts/windows/run_mobilenet_female_bie_evaluation.py `
+    --data-root 'D:\radiation-edge-ai-data' `
+    --prepared 'D:\radiation-edge-ai-data\scratch\nasa_mobilenet_female_bie_evaluation_20261126T234928Z_df112c4c\preparation' `
+    --jobs 5
+```
+
+The launcher prints a fresh external readout directory. Its
+`evaluation_receipt.json` links the simulator and scoring stages.
+`vendor/chunks/*.zip` preserves native per-input logs, integer codes and decoded
+outputs. `comparison/comparison.json` records all eight engineering decisions,
+and the three paired CSVs beside it identify each nucleus, bag and contrast.

@@ -16,10 +16,6 @@ REPO = Path(__file__).resolve().parents[2]
 DATA = Path(os.environ.get("RADEDGE_DATA_ROOT", "D:/radiation-edge-ai-data"))
 POLICY = REPO / "docs/NASA_MOBILENET_V2_FEMALE_INT8_V1.json"
 MODULES = REPO / "src/radiation_edge_ai/nasa_bps"
-sys.path.insert(0, str(REPO / "src"))
-from radiation_edge_ai.nasa_bps.bind_mobilenet_bie_evaluation import bind, staged_path
-from radiation_edge_ai.nasa_bps.multimodel_ptq import sha256 as digest, IMAGE_ID as IMAGE
-from radiation_edge_ai.nasa_bps.multimodel_qualification import POLICY_SHA
 
 
 def utc():
@@ -37,6 +33,11 @@ def mount(source, target, readonly=True):
 
 
 def launch(prepared, jobs, document, data_root):
+    sys.path.insert(0, str(REPO / "src"))
+    from radiation_edge_ai.nasa_bps.bind_mobilenet_bie_evaluation import bind, staged_path
+    from radiation_edge_ai.nasa_bps.multimodel_ptq import sha256 as digest, IMAGE_ID as IMAGE
+    from radiation_edge_ai.nasa_bps.multimodel_qualification import POLICY_SHA
+
     prepared = prepared.resolve(strict=True)
     scratch = (data_root / "scratch").resolve(strict=True)
     if scratch not in prepared.parents:
