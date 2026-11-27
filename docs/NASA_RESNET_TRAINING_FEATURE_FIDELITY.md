@@ -48,6 +48,11 @@ distribution tables preserve positive and negative differences across all
 The Conv and ReLU stem words occupied 16 bits each. MaxPool stored eight.
 At the final residual map, global pool, affine head, output ReLU and burden
 the widths were 16, 8, 16, 8 and 8 bits respectively.
+The vendor metadata export on the same BIE distinguishes storage from
+effective width. Stem Conv has 16 effective bits. Stem ReLU has 15 effective
+bits in its 16-bit word. MaxPool has a 15-bit working output and 8-bit
+stored output. The final residual ReLU also has 15 effective bits, and the
+global pool has a 16-bit working output and 8-bit stored output.
 
 Of 49,283,072 stem Conv values in the 47-nucleus panel, 15,881 reached the
 signed lower endpoint. All 15,881 had zero or negative value after the native
