@@ -61,7 +61,56 @@ def replay_original_head(root, attribution, record, rows):
     return results
 
 
-def summarize(root, attribution, receipt_sha, out):
+def plot_confirmation(rows, out):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    cohort = [r for r in rows if r["panel"] == "confirmation"]
+    fig, (left, right) = plt.subplots(1, 2, figsize=(12, 4.8), constrained_layout=True)
+    colors = ("#0072B2", "#D55E00", "#009E73", "#6F4C9B")
+    stages = ("input_rounding", "extractor", "pooling", "head", "relu_encoding", "final_transfer")
+    for source, color in zip(SOURCES, colors):
+        group = [r for r in cohort if r["source_name"] == source]
+        values = [np.mean([r["suffix"][b]["effect"] for r in group]) for b in BOUNDARIES]
+        contributions = [np.mean([r["endpoint"][b] for r in group]) for b in stages]
+        left.plot(range(len(BOUNDARIES)), values, marker="o", color=color, label=source)
+        right.plot(range(len(stages)), contributions, marker="o", color=color, label=source)
+    for ax, labels in (
+        (
+            left,
+            (
+                "Input",
+                "Stem conv",
+                "Stem clip",
+                "Block 1",
+                "Block 2",
+                "Block 13",
+                "Block 17",
+                "Pre-pool",
+            ),
+        ),
+        (right, ("Input", "Extractor", "Pooling", "Head", "ReLU encoding", "Gather")),
+    ):
+        ax.axhline(0, color="0.3", lw=0.8)
+        ax.set_xticks(range(len(labels)))
+        ax.set_xticklabels(labels, rotation=35, ha="right")
+        ax.spines["right"].set_visible(False)
+        ax.spines["top"].set_visible(False)
+        ax.grid(axis="y", alpha=0.2)
+    left.set_title("Cumulative shift through an FP32 suffix", loc="left")
+    left.set_ylabel("Mean preactivation change (foci/nucleus)")
+    right.set_title("Contribution to the rectified output", loc="left")
+    right.set_ylabel("Mean endpoint change (foci/nucleus)")
+    right.legend(frameon=False, fontsize=8)
+    fig.suptitle("MobileNetV2 standard INT8 · 24 training nuclei, six per source", fontsize=14)
+    for suffix in ("png", "pdf"):
+        fig.savefig(out / ("training_attribution." + suffix), dpi=170)
+    plt.close(fig)
+
+
+def summarize(root, attribution, receipt_sha, out, figure=False):
     r = read_json(checked(attribution / "receipt.json", receipt_sha))
     rows = read_json(checked(attribution / "nuclear_results.json", r["nuclear_results_sha256"]))
     checked(attribution / "cross_arch_pairs.csv", r["pairs_sha256"])
@@ -177,6 +226,11 @@ def summarize(root, attribution, receipt_sha, out):
     ):
         write_table(out / name, records)
         outputs[name] = digest(out / name)
+    if figure:
+        plot_confirmation(rows, out)
+        for ext in ("png", "pdf"):
+            name = "training_attribution." + ext
+            outputs[name] = digest(out / name)
     save_json(
         out / "receipt.json",
         dict(
@@ -195,5 +249,6 @@ if __name__ == "__main__":
     p.add_argument("--receipt-sha", required=True)
     p.add_argument("--root", type=Path, default=Path("D:/radiation-edge-ai-data"))
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--figure", action="store_true", help="Also render static PNG and PDF figures")
     args = p.parse_args()
-    summarize(args.root, args.attribution, args.receipt_sha, args.out)
+    summarize(args.root, args.attribution, args.receipt_sha, args.out, args.figure)
