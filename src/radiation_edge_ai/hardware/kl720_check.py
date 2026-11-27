@@ -51,14 +51,15 @@ def main() -> int:
             "kn_number",
             "firmware",
             "firmware_version",
-            "connectable",
+            "is_connectable",
         ):
             value = _safe_attr(device, field, None)
             if value is not None:
                 print(f"  {field}: {value}")
 
-    if count < 1:
-        print("\nKL720 READY: NO - no Kneron device detected")
+    devices = [d for d in device_list if _safe_attr(d, "product_id", None) == 0x720]
+    if not any(_safe_attr(d, "is_connectable", False) for d in devices):
+        print("\nKL720 READY: NO - no connectable KL720 detected")
         return 4
 
     print("\nKL720 READY: YES")
