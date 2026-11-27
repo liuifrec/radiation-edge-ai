@@ -14,8 +14,8 @@ MOBILE = {
     "development_manifest_sha256": "23e21fdc8bf00a2814b64c56223cfd3d8e96eda71bdbff5d8ec74dae218cf5a9",
     "nasa_reference_sha256": "fcbf1339805e02a7ca9cec36b476438b0512b222bd70ac2f90ed75c238a0b01f",
 }
-# Set only when a prospective candidate policy has been committed before fixed readout.
-POLICY_SHA = None
+# Raw JSON bytes committed before any fixed-point readout of the development panel.
+POLICY_SHA = "1f69f8f866ca55bcd551889008de135dd14b2fd502caf0d925561903f5574d37"
 
 
 def verify_policy(policy, actual_sha):
