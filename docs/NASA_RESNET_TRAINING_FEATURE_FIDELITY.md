@@ -107,3 +107,51 @@ and `b0addc686d1ab8151955040853612a2afcdafd8ef32da092f1f573d91ba7aa3d`.
 The full second replay took 113.07 seconds on the host. The archived native
 simulator jobs totaled 2,020.78 seconds. This experiment uses the frozen
 standard BIE and does not change its compilation eligibility.
+
+## Same-input comparison with MobileNetV2
+
+An additional 24 native singleton jobs ran the unchanged ResNet18 BIE on the
+same six nonpilot nuclei per source as the MobileNetV2 confirmation panel.
+Selection used the frozen MobileNetV2 FP32 prediction ranks. Seven of these
+inputs had zero ResNet18 FP32 burden. The two architectures can now be
+compared on precisely the same input hashes.
+
+| Training source | Nuclei | Observed BIE minus FP32 | Upstream through global pool | Downstream head and output |
+| --- | ---: | ---: | ---: | ---: |
+| BALBCM1 | 6 | −0.10699 | −0.10094 | −0.00605 |
+| BALBCM2 | 6 | −0.12189 | −0.11161 | −0.01027 |
+| C57BLM1 | 6 | −0.12448 | −0.12051 | −0.00397 |
+| C57BLM3 | 6 | −0.10772 | −0.10353 | −0.00419 |
+| Overall | 24 | −0.11527 | −0.10915 | −0.00612 |
+
+All values are signed changes in nonnegative burden (foci/nucleus).
+Upstream is the FP32 affine head and ReLU applied to the decoded BIE pool
+minus the original prediction. Downstream is the BIE minus this substituted
+prediction. For all four previously captured cases, all six input/activation
+word arrays reproduced byte for byte.
+
+The pinned vendor API `libdynasty.so::dump_radix_json` exported per-channel
+scales, radices and signed widths. The shared MobileNet decoder agreed with
+native text within 7.46 × 10⁻⁹ for pool/flatten and exactly for input, head,
+output ReLU and final burden. The native jobs all exited successfully and
+took 682.519 seconds summed across workers. The interrupted host launcher
+did not save a total capture wall time. The FP32/word audit took 71.90 seconds.
+The readout receipt and paired CSV have respective SHA256s
+`d0c7a965c04473a101b4a1ecaa1a6a844277f94cd942f4dcd079ad1dc51f2b48`
+and `a5569ea52f41a46a5b7d702f6e86f2c4d3e196603f5cc4690f73e774128d58ef`.
+
+The common-panel input selection and the simulator capture helper are bound
+to their hashes from the archived MobileNet feature experiment. Use the
+shared decoder from commit `a3a299d`. With both scientific dependencies
+installed and the pinned Docker image available locally, run:
+
+```powershell
+$root = $env:RADEDGE_DATA_ROOT
+$out = Join-Path $root ("scratch/resnet_common24_" + [guid]::NewGuid())
+python scripts/windows/replay_resnet_common_training.py capture --root $root --out $out
+python scripts/windows/score_resnet_common_training.py metadata --root $root --out $out
+python scripts/windows/score_resnet_common_training.py score --root $root --out $out --dest "$out/readout"
+```
+
+When the shared decoder is in a separate checkout, pass its
+`src/radiation_edge_ai/nasa_bps/feature_attribution.py` path via `--decoder`.
