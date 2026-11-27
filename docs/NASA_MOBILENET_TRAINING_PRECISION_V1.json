@@ -1,0 +1,27 @@
+{
+  "schema": "nasa_mobilenet_training_precision_v1",
+  "frozen_utc": "2026-11-27T01:56:53Z",
+  "architecture": "mobilenet_v2",
+  "fold": "fold_female_role",
+  "model_id": 32781,
+  "version": "0001",
+  "platform": "720",
+  "image": "sha256:2207d99c9f78deef90647a3da3047ec3f7942ec689385a586fee476f77e89041",
+  "sdk_wrapper_sha256": "e37d836d52651a3bc897b432e916ad36b77f9acd6a8c3b72f651a5ff3acb566a",
+  "checkpoint_sha256": "bb00a25e2db05334e113852760414adafa22f95614e4c43f92b6607e690bd543",
+  "source_sha256": "2f18b2330ca3289ab422e1ff47b526b4bfa6a46fc4bd7354346609715f575e45",
+  "optimized_sha256": "75824e1ed4f8520d90a942c1351926b922db9b4284b8b6d7cd5663428e73c074",
+  "standard_bie_sha256": "2102c400d696bc385e23d2d9b978b779e4c95b82661272e6873ac1eb57607e26",
+  "calibration_manifest_sha256": "79aef81e921a723187d73cef5151ff9b943ad486d7e83af19daf063a5b5a1489",
+  "parity_sha256": "412cbb9eeb2203cfa76fcb132ceb6f93ad26e121e8854f6811566aee0fa09628",
+  "panel_sha256": "534fffa2f104bf395952fe25ecc8708ca4b91bf032dc521b19298cf5fe35ebfe",
+  "trigger": "At least one nonpilot nucleus with verified terminal identity and a nonzero FP32 head contribution from native pooled features relative to the FP32 pooled features in the baseline attribution.",
+  "recipes": {
+    "datapath16": {"datapath_bitwidth_mode":"int16"},
+    "neural16": {"datapath_bitwidth_mode":"int16","weight_bitwidth_mode":"int16","model_in_bitwidth_mode":"int16","model_out_bitwidth_mode":"int16"}
+  },
+  "fixed": "192 ordered original training calibration tensors, threads 2, optimize 0, same range method and SDK defaults. Read the SDK summary and per-layer table to verify actual assignments. No other conversion recipes.",
+  "readout": "Run the same 40 original tensors through each supported BIE. Re-run the original BIE as paired reference. Check native integer codes, float values and identifiers. Pilot 16 is descriptive only. Confirmation 24 comprises six nuclei per training source, selected using original FP32 only.",
+  "screen": "A completed candidate must strictly reduce confirmation mean absolute error and absolute mean signed error and must not increase any source's confirmation MAE versus standard INT8. Give each nucleus equal weight. Rank eligible candidates by ascending confirmation MAE, then exact BIE bytes, then recipe name. A vendor-blocked recipe is recorded and excluded. Missing readout for a supported recipe leaves the comparison incomplete.",
+  "decision": "The selected binary may receive a separate prospective development-regression protocol. All existing engineering limits remain frozen. This screen confers no NEF eligibility."
+}

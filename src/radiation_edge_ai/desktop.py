@@ -15,9 +15,13 @@ import threading
 from pathlib import Path
 
 from radiation_edge_ai.desktop_runtime import Settings, build_job, run_job
+from radiation_edge_ai.hardware.deployment_catalogue import REFERENCES, RUN_BACKENDS, SPOT
 
 LABELS = {
     "Environment check (read only)": "doctor",
+    "List all deployment references and candidates": "deployment-models",
+    "Verify selected reference artifacts (offline)": "deployment-verify",
+    "Run selected reference model": "deployment-run",
     "List pretrained models and local artifacts": "pretrained-models",
     "Scan KL720 (no model load)": "device-scan",
     "Run frozen plan (CPU or KL720)": "run-plan",
@@ -67,8 +71,8 @@ def main(argv=None):
         ("Data / job-log root", initial.data_root, "dir"),
         ("Scientific/ONNX Python", initial.scientific_python, "file"),
         ("Existing Kneron PLUS Python", initial.kl720_python, "file"),
-        ("Input JSON plan / manifest / transaction", "", "file"),
-        ("NEW output folder (assay run / export)", "", "newdir"),
+        ("Input manifest, transaction or Spotiflow crop", "", "file"),
+        ("NEW output folder (assay, export or Spotiflow)", "", "newdir"),
     )
     def browse(key, kind):
         if kind == "file":
@@ -96,11 +100,33 @@ def main(argv=None):
     timeout = tk.StringVar(value=str(initial.kl720_timeout_ms))
     ttk.Entry(opts, textvariable=timeout, width=10).pack(side="left", padx=6)
     action = tk.StringVar(value=next(iter(LABELS)))
-    ttk.Combobox(frame, textvariable=action, values=list(LABELS), state="readonly").pack(fill="x", pady=5)
+    action_box = ttk.Combobox(frame, textvariable=action, values=list(LABELS), state="readonly")
+    action_box.pack(fill="x", pady=5)
+    selectors = ttk.Frame(frame)
+    model, backend = tk.StringVar(), tk.StringVar()
+    ttk.Label(selectors, text="Model").pack(side="left")
+    model_box = ttk.Combobox(selectors, textvariable=model, values=list(RUN_BACKENDS), state="readonly", width=41)
+    model_box.pack(side="left", padx=5)
+    ttk.Label(selectors, text="Backend").pack(side="left")
+    backend_box = ttk.Combobox(selectors, textvariable=backend, state="disabled", width=12)
+    backend_box.pack(side="left", padx=5)
+
+    def selection_changed(_event=None):
+        action_id = LABELS[action.get()]
+        enabled = action_id in ("deployment-run", "deployment-verify")
+        model_box.configure(state="readonly" if enabled else "disabled")
+        backend.set("")
+        backend_box.configure(values=RUN_BACKENDS.get(model.get(), ()),
+                              state="readonly" if action_id == "deployment-run" and model.get() else "disabled")
+
+    selectors.pack(fill="x", pady=3)
+    action_box.bind("<<ComboboxSelected>>", selection_changed)
+    model_box.bind("<<ComboboxSelected>>", selection_changed)
+    selection_changed()
     ttk.Label(frame, text=(
-        "DNAi manifest: prepared field/windows + scientific Python and KL720 Python. NASA KL720 uses a frozen plan.\n"
-        "Track A: select TRACKA_INPUT_BUNDLE.json and Scientific Python; no new nuclear segmentation or device access.\n"
-        "NPU inference is never replaced by CPU automatically. A returned command is not biological validation."
+        "NASA and DNAi reference runs use their fixed panels. Leave input and output blank. "
+        "Spotiflow uses one grayscale TIFF or NPY crop and a new external output folder. "
+        "Track A uses its prepared bundle and scientific Python."
     ), wraplength=990).pack(anchor="w", pady=5)
     controls = ttk.Frame(frame)
     controls.pack(fill="x", pady=5)
@@ -127,7 +153,8 @@ def main(argv=None):
     def collect():
         selected = settings()
         job = build_job(selected, repo, LABELS[action.get()],
-                        variables[entries[3][0]].get(), variables[entries[4][0]].get())
+                        variables[entries[3][0]].get(), variables[entries[4][0]].get(),
+                        model=model.get(), selected_backend=backend.get())
         return selected, job
 
     def preview():
@@ -159,10 +186,15 @@ def main(argv=None):
         except (OSError, ValueError) as exc:
             messagebox.showerror("Not ready", str(exc), parent=root)
             return
-        if job.hardware_requested and not messagebox.askyesno(
-                "Explicit KL720 access", "This action accesses the KL720 through your selected PLUS Python.\n"
-                "Close other KL720 jobs first. No automatic CPU fallback will be used.\n\nContinue?", parent=root):
-            return
+        if job.hardware_requested:
+            scope = ""
+            if job.action == "deployment-run":
+                scope = ("Process the selected Spotiflow crop" if job.assay_id == SPOT
+                         else REFERENCES[job.assay_id]["scope"]) + ".\n"
+            if not messagebox.askyesno("Explicit KL720 access", scope +
+                    "This action accesses the KL720 through your selected PLUS Python.\n"
+                    "Close other KL720 jobs first. Continue?", parent=root):
+                return
         if job.action in ("run-plan", "run-assay", "export", "tracka-reference") and not messagebox.askyesno(
                 "Confirm existing workflow", "Run the selected prepared workflow?\n"
                 "Track A uses saved nuclear masks, not new nuclear segmentation.\n"

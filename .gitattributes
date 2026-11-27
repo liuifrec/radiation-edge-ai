@@ -1,2 +1,7 @@
+/docs/NASA_RESNET18_FULL_PRECISION_TRAINING_V1.json text eol=lf
+/docs/NASA_PRECISION_TRAINING_PROTOCOL_V1.md text eol=lf
+/docs/NASA_*_PRECISION_REGRESSION_V1.json text eol=lf
+/docs/NASA_RESNET18_NEURAL16_REGRESSION_V1.json text eol=lf
 # The immutable engineering policy is hashed by its original LF bytes.
 /docs/SPOTIFLOW_KL720_ENGINEERING_GATES_V1.json text eol=lf
+/docs/NASA_MOBILENET_TRAINING_PRECISION_V1.json text eol=lf
