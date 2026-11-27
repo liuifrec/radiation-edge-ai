@@ -11,9 +11,28 @@ from pathlib import Path
 
 import numpy as np
 
-from radiation_edge_ai.nasa_bps.multimodel_ptq import calibration_path, checked_rows, load_json, require, save_json, sha256
-from radiation_edge_ai.nasa_bps.neural16_nef import NEF_POLICY_SHA, REPLAY_POLICY_SHA
-from radiation_edge_ai.nasa_bps.neural16_transport import SCALE, SHAPE, SMOKE, captured_scalar, descriptor_bits, input_buffer
+from radiation_edge_ai.nasa_bps.multimodel_ptq import (
+    calibration_path,
+    checked_rows,
+    load_json,
+    require,
+    save_json,
+    sha256,
+)
+from radiation_edge_ai.nasa_bps.neural16_nef import (
+    NEF_POLICY_SHA,
+    REPLAY_POLICY_SHA,
+    compiler_fingerprints,
+    inspection_evidence,
+)
+from radiation_edge_ai.nasa_bps.neural16_transport import (
+    SCALE,
+    SHAPE,
+    SMOKE,
+    captured_scalar,
+    descriptor_bits,
+    input_buffer,
+)
 
 OUT = Path("/out")
 BIE = Path("/model.bie")
@@ -71,7 +90,13 @@ def compile_model(receipt):
     shutil.copyfile(str(product), str(nef))
     receipt.update(nef_sha256=sha256(nef), nef_bytes=nef.stat().st_size,
                    vendor_api_sha256=sha256(inspect.getsourcefile(ktc.compile)))
+    receipt["compiler_evidence_sha256"] = compiler_fingerprints(OUT)
+    require(receipt["compiler_evidence_sha256"]["nef_sha256"] == receipt["nef_sha256"], "NEF changed before inspection")
+    receipt["compile_phase"] = "postcompile_inspection"
     inspect_compilation(flow, receipt)
+    require(all(receipt[key] == digest for key, digest in receipt["compiler_evidence_sha256"].items()),
+            "Compiler evidence changed during inspection")
+    receipt["compile_phase"] = "complete"
 
 
 def inspect_compilation(flow, receipt):
@@ -93,6 +118,18 @@ def inspect_compilation(flow, receipt):
     receipt["reference_memory"] = reference_memory(receipt["memory"])
     require(receipt["reference_memory"]["fits_reference_map"], "Compiler allocation exceeds reference board model region")
     require(sha256(BIE) == receipt["eligibility"]["bie_sha256"], "BIE bytes changed during compilation")
+
+
+def reinspect(receipt, compiled_digest, folder):
+    """Inspect immutable original compiler bytes. A diagnostic cannot authorize simulation."""
+    failed = inspection_evidence(folder, compiled_digest, receipt["eligibility"])
+    receipt.update(diagnostics_only=True, inspection_completed=False, source_failed_compile_sha256=compiled_digest,
+                   original_error=failed["error"], nef_sha256=failed["nef_sha256"], nef_bytes=failed["nef_bytes"])
+    inspect_compilation(folder / "kneron_flow", receipt)
+    require(all(receipt[key] == digest for key, digest in failed["compiler_evidence_sha256"].items())
+            and compiler_fingerprints(folder) == failed["compiler_evidence_sha256"],
+            "Inspector did not use the original sealed evidence")
+    receipt["inspection_completed"] = True
 
 
 def capture_setup(nef, folder, compile_out, work):
@@ -164,7 +201,7 @@ def development_inputs(chain):
     require(sha256(predictions) == chain["predictions_sha256"]
             and sha256(manifest) == chain["input_manifest_sha256"], "Different development references")
     rows, pairs = checked_rows(manifest), checked_rows(predictions)
-    require(len(rows) == len(pairs) == len(set(r["sample_id"] for r in rows)) == 2400,
+    require(len(rows) == len(pairs) == len({r["sample_id"] for r in rows}) == 2400,
             "Incomplete known development input manifest")
     items = []
     for meta, ref in zip(rows, pairs):
@@ -183,6 +220,7 @@ def simulate(receipt, policy, compiled_digest, training_sim_sha):
     from sys_flow import csim_utils, flow_constants
     from sys_flow.compiler_v2 import unpack_nefs
     from sys_flow.inference import data_converter
+
     from radiation_edge_ai.nasa_bps import kneron_verify_r1_v2_nef_vs_bie as scalar_parser
 
     compile_out = Path("/compiled")
@@ -278,7 +316,7 @@ def simulate(receipt, policy, compiled_digest, training_sim_sha):
                         value, = values
                         require(np.asarray(value).size == 1 and np.isfinite(value).all(), "Invalid public NEF result")
                         public.update(value=float(np.asarray(value).item()), shape=list(np.asarray(value).shape))
-                    except (Exception, SystemExit) as exc:
+                    except (Exception, SystemExit) as exc:  # noqa: BLE001 -- preserve optional vendor API diagnostics
                         public["error"] = repr(exc)
                     public["seconds"] = time.monotonic() - start
                     receipt["smoke_public_nef"] = public
@@ -292,7 +330,7 @@ def simulate(receipt, policy, compiled_digest, training_sim_sha):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=("compile", "simulate", "development-reference"))
+    parser.add_argument("stage", choices=("compile", "reinspect", "simulate", "development-reference"))
     parser.add_argument("--eligibility-sha256", required=True)
     parser.add_argument("--compile-sha256")
     parser.add_argument("--training-simulation-sha256")
@@ -310,9 +348,11 @@ def main():
     try:
         if args.stage == "compile":
             compile_model(receipt)
+        elif args.stage == "reinspect":
+            reinspect(receipt, args.compile_sha256, Path("/compiled"))
         else:
             simulate(receipt, policy, args.compile_sha256, args.training_simulation_sha256)
-        receipt["passed"] = True
+        receipt["passed"] = args.stage != "reinspect"
     except (Exception, SystemExit) as exc:
         receipt["error"] = repr(exc)
         raise

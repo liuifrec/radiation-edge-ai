@@ -107,15 +107,21 @@ def eligibility(docs, data, run, audit_digest):
 
 
 def completed_stage(folder, stage, digest, chain):
+    require(not (folder / "invocation_failure.json").exists(), "Host recorded a failed invocation")
+    return _stage_receipt(folder, stage, digest, chain, passed=True)
+
+
+def _stage_receipt(folder, stage, digest, chain, passed):
     require(re.fullmatch("[0-9a-f]{64}", digest or ""), "Expected a SHA256 for the completed " + stage)
     file = folder / (stage + ".json")
     rec = load_json(file)
     invocation = load_json(folder / "invocation.json")
     require(sha256(file) == digest == invocation["stage_receipt_sha256"]
-            and rec["eligibility"] == chain and rec["passed"] is True
+            and rec["eligibility"] == chain and rec["passed"] is passed
             and rec["stage"] == stage and rec["physical_execution"] is False
             and sha256(folder / "eligibility.json") == rec["eligibility_sha256"] == invocation["eligibility_sha256"]
-            and load_json(folder / "eligibility.json") == chain and invocation["returncode"] == 0
+            and load_json(folder / "eligibility.json") == chain and type(invocation["returncode"]) is int
+            and (invocation["returncode"] == 0) is passed
             and sha256(folder / "docker.log") == invocation["log_sha256"], "Changed stage or host invocation")
     for name, expected in invocation["sources"].items():
         path = (folder / "source" / name).resolve()
@@ -125,38 +131,96 @@ def completed_stage(folder, stage, digest, chain):
     return rec
 
 
-def compiled_files(folder, compiled):
+def compiler_fingerprints(folder):
+    """Seal all binary and text inputs consumed by the post-compile inspector."""
     flow = folder / "kneron_flow"
     model = flow / "model_modelid_32783"
+    result = {}
     for path, field in ((folder / "model.nef", "nef_sha256"), (flow / "fw_info.txt", "firmware_map_sha256"),
                         (flow / "batch_compile.log", "compiler_log_sha256"),
                         (model / "model_config.json", "compiler_config_sha256"),
                         (model / "setup.txt", "setup_text_sha256"), (model / "setup.bin", "setup_bin_sha256"),
                         (model / "ioinfo.json", "compiled_io_sha256")):
-        require(sha256(path) == compiled[field], "Compiled artifact changed: " + path.name)
+        require(path.resolve(strict=True) == folder.resolve() / path.relative_to(folder),
+                "Compiled artifact escapes the preserved output: " + path.name)
+        result[field] = sha256(path)
+    return result
 
 
-def main():
+def compiled_files(folder, compiled):
+    for field, digest in compiler_fingerprints(folder).items():
+        require(digest == compiled[field], "Compiled artifact changed: " + field)
+
+
+def inspection_evidence(folder, digest, chain):
+    """Authenticate a failed inspection with a complete, pre-inspection seal."""
+    rec = _stage_receipt(folder, "compile", digest, chain, passed=False)
+    failure = load_json(folder / "invocation_failure.json")
+    require(failure["stage"] == "compile" and failure["stage_receipt_sha256"] == digest
+            and failure["returncode"] == load_json(folder / "invocation.json")["returncode"]
+            and rec.get("compile_phase") == "postcompile_inspection"
+            and rec.get("error") and rec["compiler_evidence_sha256"] == compiler_fingerprints(folder)
+            and rec["nef_sha256"] == rec["compiler_evidence_sha256"]["nef_sha256"]
+            and rec["nef_bytes"] == (folder / "model.nef").stat().st_size,
+            "Failed compile has no authenticated post-compiler inspection inputs")
+    return rec
+
+
+def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("stage", choices=["check", "compile", "simulate", "development-reference"])
+    p.add_argument("stage", choices=["check", "compile", "reinspect", "simulate", "development-reference"])
     for name in ("data", "run"):
         p.add_argument("--" + name, type=Path, required=True)
     p.add_argument("--audit-sha256", required=True)
-    p.add_argument("--compile-sha256", help="Required digest of the completed compile receipt for simulation")
+    p.add_argument("--compile-sha256", help="Expected original compile.json digest for simulation or reinspection")
     p.add_argument("--out", type=Path, help="New external evidence directory, required for execution")
-    p.add_argument("--compiler-output", type=Path, help="Existing compile directory for simulation")
+    p.add_argument("--compiler-output", type=Path, help="Original compile directory, always mounted read-only")
     p.add_argument("--training-simulation", type=Path, help="Passing 48-case directory for development CSIM")
     p.add_argument("--training-simulation-sha256", help="Expected digest of its simulate.json")
     p.add_argument("--plus-headers", type=Path, default=Path.home() / "kneron_plus/src/include/local")
-    args = p.parse_args()
+    args = p.parse_args(argv)
     repo = Path(__file__).resolve().parents[3]
-    chain = eligibility(repo / "docs", args.data, args.run, args.audit_sha256)
     if args.stage == "check":
-        print(json.dumps(chain, indent=2))
+        print(json.dumps(eligibility(repo / "docs", args.data, args.run, args.audit_sha256), indent=2))
         return
     require(args.out is not None, "Provide fresh external output")
     require((args.data / "scratch").resolve() in args.out.resolve().parents,
             "Save compiler and simulator evidence in a fresh external scratch directory")
+    for source in (args.compiler_output, args.training_simulation):
+        if source is not None:
+            require(source.resolve() != args.out.resolve() and source.resolve() not in args.out.resolve().parents,
+                    "Output directory must be separate from archived stage evidence")
+    args.out.mkdir(parents=True, exist_ok=False)
+    start = time.monotonic()
+    invocation = {"stage": args.stage, "phase": "authenticate", "physical_execution": False,
+                  "audit_sha256": args.audit_sha256, "returncode": None}
+    try:
+        save_json(args.out / "invocation.json", invocation)
+        chain = eligibility(repo / "docs", args.data, args.run, args.audit_sha256)
+        invocation["phase"] = "prepare"
+        execute(args, repo, chain, invocation)
+        invocation["phase"] = "complete"
+    except (Exception, SystemExit, KeyboardInterrupt) as exc:
+        invocation["error"] = repr(exc)
+        raise
+    finally:
+        invocation["host_wall_seconds"] = time.monotonic() - start
+        try:
+            for name, key in [("docker.log", "log_sha256"), (args.stage + ".json", "stage_receipt_sha256")]:
+                if (args.out / name).is_file():
+                    invocation[key] = sha256(args.out / name)
+            save_json(args.out / "invocation.json", invocation)
+        except (Exception, KeyboardInterrupt) as exc:
+            invocation["evidence_error"] = repr(exc)
+            raise
+        finally:
+            if "error" in invocation or "evidence_error" in invocation:
+                save_json(args.out / "invocation_failure.json", invocation)
+
+
+def execute(args, repo, chain, invocation):
+    save_json(args.out / "eligibility.json", chain)
+    invocation["eligibility_sha256"] = sha256(args.out / "eligibility.json")
     prepared = load_json(args.run / "preparation.json")["artifacts"]
     plus_fw = args.plus_headers.resolve().parents[2] / "firmware_development/KL720/firmware"
     mounts = [(repo / "docs" / NEF_POLICY, "/policy.json"),
@@ -164,6 +228,11 @@ def main():
               (plus_fw / "platform/kl720/common/membase.h", "/map/membase.h"),
               (Path(prepared["bie_sha256"]["path"]), "/model.bie")]
     extra = []
+    if args.stage == "reinspect":
+        require(args.compiler_output is not None, "Supply the original failed compile directory")
+        inspection_evidence(args.compiler_output, args.compile_sha256, chain)
+        mounts.append((args.compiler_output, "/compiled"))
+        extra = ["--compile-sha256", args.compile_sha256]
     if args.stage in ("simulate", "development-reference"):
         require(args.compiler_output and re.fullmatch("[0-9a-f]{64}", args.compile_sha256 or ""),
                 "A hashed compile receipt is required")
@@ -187,7 +256,6 @@ def main():
                        (args.run / "vendor/bie_nuclei.csv", "/dev_predictions.csv"),
                        (args.training_simulation / "simulate.json", "/training_sim.json")])
         extra += ["--training-simulation-sha256", args.training_simulation_sha256]
-    args.out.mkdir(parents=True, exist_ok=False)
     snapshot = args.out / "source"
     # Preserve exactly the package modules and vendor entrypoints used by this process.
     package = repo / "src/radiation_edge_ai"
@@ -206,32 +274,31 @@ def main():
         shutil.copyfile(source, copy)
         source_hashes[relative] = sha256(copy)
     mounts.extend([(snapshot, "/source"), (snapshot, "/launch")])
-    save_json(args.out / "eligibility.json", chain)
     mounts.append((args.out / "eligibility.json", "/eligibility.json"))
     cmd = ["docker", "run", "--rm", "--network", "none", "--pull", "never", "--cpus", "4",
            "--memory", "6g", "-e", "PYTHONPATH=/source", "-e", "OMP_NUM_THREADS=1"]
     for local, guest in mounts:
-        cmd += ["--mount", "type=bind,source={},target={},readonly".format(local.resolve(strict=True), guest)]
-    cmd += ["--mount", "type=bind,source={},target=/out".format(args.out.resolve()),
+        cmd += ["--mount", f"type=bind,source={local.resolve(strict=True)},target={guest},readonly"]
+    cmd += ["--mount", f"type=bind,source={args.out.resolve()},target=/out",
             "--entrypoint", "/workspace/miniconda/bin/python", IMAGE_ID, "-B", "/launch/nasa_neural16_nef_worker.py",
             args.stage, "--eligibility-sha256", sha256(args.out / "eligibility.json")] + extra
-    invocation = {"argv": cmd, "physical_execution": False, "sources": source_hashes,
-                  "eligibility_sha256": sha256(args.out / "eligibility.json")}
+    invocation.update(argv=cmd, sources=source_hashes, phase="launch")
     save_json(args.out / "invocation.json", invocation)
-    start = time.monotonic()
     with (args.out / "docker.log").open("xb") as log:
-        proc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT)
-    invocation.update(returncode=proc.returncode, seconds=time.monotonic()-start,
-                      log_sha256=sha256(args.out / "docker.log"))
-    verdict = args.out / (args.stage + ".json")
-    if verdict.is_file():
-        invocation["stage_receipt_sha256"] = sha256(verdict)
-    save_json(args.out / "invocation.json", invocation)
+        start = time.monotonic()
+        proc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, check=False)
+    invocation.update(returncode=proc.returncode, seconds=time.monotonic()-start, phase="verify_worker")
     if proc.returncode:
-        save_json(args.out / "invocation_failure.json", {"returncode": proc.returncode,
-                  "log_sha256": sha256(args.out / "docker.log"), "stage": args.stage,
-                  "eligibility_sha256": sha256(args.out / "eligibility.json")})
         raise SystemExit(proc.returncode)
+    verdict = load_json(args.out / (args.stage + ".json"))
+    require(verdict["stage"] == args.stage and verdict["physical_execution"] is False
+            and verdict["eligibility_sha256"] == invocation["eligibility_sha256"] and verdict["eligibility"] == chain
+            and verdict["worker_sha256"] == source_hashes["nasa_neural16_nef_worker.py"], "Invalid worker receipt")
+    if args.stage == "reinspect":
+        require(verdict["passed"] is False and verdict["inspection_completed"] is True
+                and verdict["source_failed_compile_sha256"] == args.compile_sha256, "Invalid diagnostic receipt")
+    else:
+        require(verdict["passed"] is True, "Worker recorded a failed qualification")
 
 
 if __name__ == "__main__":
